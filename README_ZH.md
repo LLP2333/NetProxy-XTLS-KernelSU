@@ -1,276 +1,112 @@
-<p align="center">
-  <img src="image/logo.png" alt="NetProxy Logo" width="120" />
-</p>
+# NetProxy
 
-<h1 align="center">NetProxy</h1>
+基于 **Xray-core** 的 Android 系统级透明代理模块。
 
-<p align="center">
-  <strong>Android 系统级 sing-box 透明代理模块</strong><br>
-  支持 Android 管理器、TPROXY / REDIRECT、TCP / UDP、Clash API、zashboard、分应用代理、订阅管理
-</p>
+当前版本只考虑手写 Xray 配置文件的启动方式，不再提供节点链接导入、订阅更新、Clash API 或内置网页面板。
 
-<p align="center">
-  <a href="https://github.com/Fanju6/NetProxy-Magisk/releases">
-    <img src="https://img.shields.io/github/v/release/Fanju6/NetProxy-Magisk?style=flat-square&label=Release&color=blue" alt="Latest Release" />
-  </a>
-  <a href="https://github.com/Fanju6/NetProxy-Magisk/releases">
-    <img src="https://img.shields.io/github/downloads/Fanju6/NetProxy-Magisk/total?style=flat-square&color=green" alt="Downloads" />
-  </a>
-  <img src="https://img.shields.io/badge/sing--box-Core-blueviolet?style=flat-square" alt="sing-box Core" />
-</p>
+## 功能范围
 
-<p align="center">
-  中文 | <a href="README.md">English</a>
-</p>
+- 内置 Xray-core v26.3.27 Android arm64 二进制。
+- 通过 Android iptables/ipset 规则实现透明代理。
+- 默认使用 TProxy 接管 TCP、UDP 和 DNS 流量。
+- 支持分应用代理名单。
+- 内置 `geoip.dat` 和 `geosite.dat`，供 Xray 路由规则使用。
+- CLI 支持服务启停、Xray 配置校验、日志、分应用代理和透明代理规则管理。
 
----
-
-## 功能特性
-
-| 功能 | 说明 |
-|------|------|
-| **APP管理** | Miuix 现代化界面，支持莫奈取色 |
-| **Clash API / zashboard** | 默认启用 Clash API，内置 zashboard 面板 |
-| **透明代理** | 支持 TPROXY / REDIRECT，覆盖 TCP、UDP 与 DNS 劫持 |
-| **分应用代理** | 黑名单 / 白名单模式，精准控制代理范围 |
-| **路由设置** | 自定义域名、IP、端口等路由规则 |
-| **DNS 设置** | 自定义 DNS 服务器和静态 Hosts 映射 |
-| **节点与订阅** | 支持单链接、文件、订阅三种导入方式，统一转换为 sing-box 配置 |
-| **热点共享** | 支持代理 WiFi 热点和 USB 共享的流量 |
-| **热切换配置** | 无需重启即可切换节点 |
-| **内核兼容** | 集成 IPSET LKM |
-
----
-
-## 界面预览
-
-<div align="center">
-  <img src="image/Screenshot.jpg" width="60%" alt="界面预览" />
-</div>
-
----
-
-## 界面与控制入口
-
-
-1. **Android 管理器**
-2. **CLI**
-3. **Clash API + zashboard**
-
-其中 Android 管理器为独立维护的原生应用，提供仪表盘、节点、订阅、分应用代理、日志与模块配置等图形化管理能力。可通过 Google Play 安装：[`NetProxy`](https://play.google.com/store/apps/details?id=com.fanjv.netproxy)
-
-当前不提供公开源码仓库。
-
-默认控制入口：
-
-- Controller: `http://<设备IP>:9999`
-- UI: `http://<设备IP>:9999/ui`
-- Secret: `singbox`
-
----
-
-## 安装
-
-1. 从 [Releases](https://github.com/Fanju6/NetProxy-Magisk/releases) 下载最新 ZIP
-2. 在 **Magisk / KernelSU / APatch** 中刷入模块
-3. 重启设备
-4. 通过 Android 管理器、CLI 或 zashboard 完成后续配置
-
----
-
-## 目录结构
+## 模块结构
 
 ```text
-/data/adb/modules/netproxy/
+src/module/
 ├─ bin/
-│  ├─ sing-box                 # sing-box 内核
-│  ├─ proxylink                # 节点 / 订阅转换工具
-│  ├─ ipset                    # ipset 工具
-│  ├─ IPSET-LKM/               # 集成 IPSET 内核驱动
-│  └─ zashboard/               # 内置控制面板
+│  ├─ xray                    # Xray-core Android arm64 二进制
+│  └─ ipset                   # 可选 ipset 工具
 ├─ config/
-│  ├─ module.conf              # 模块配置
-│  ├─ tproxy/
-│  │  └─ tproxy.conf           # 透明代理配置
-│  └─ singbox/
-│     ├─ confdir/              # 通用 sing-box 配置
-│     ├─ outbounds/            # 节点目录
-│     │  ├─ default/
-│     │  └─ sub_xxx/
-│     ├─ runtime/              # 运行时生成配置
-│     └─ source/               # 路由规则与规则集
-├─ logs/
-│  ├─ service.log
-│  ├─ sing-box.log
-│  └─ subscription.log
+│  ├─ module.conf             # 模块级配置
+│  ├─ tproxy/tproxy.conf      # 透明代理配置
+│  └─ xray/
+│     ├─ config.json          # 手写 Xray 主配置
+│     ├─ geoip.dat
+│     └─ geosite.dat
 ├─ scripts/
 │  ├─ cli
-│  ├─ core/
-│  ├─ network/
-│  └─ utils/
-├─ post-fs-data.sh
-└─ service.sh
+│  ├─ core/service.sh
+│  └─ network/tproxy.sh
+└─ logs/
+   ├─ service.log
+   └─ xray.log
 ```
-
----
 
 ## 快速开始
 
-### 1. 查看状态
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli service status
-```
-
-### 2. 启动 / 停止服务
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli service start
-su -c /data/adb/modules/netproxy/scripts/cli service stop
-su -c /data/adb/modules/netproxy/scripts/cli service restart
-```
-
-### 3. 导入节点
-
-单个链接：
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node add "vless://..."'
-```
-
-导入文件：
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node import /sdcard/clash.yaml'
-```
-
-添加订阅：
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli sub add 我的订阅 https://example.com/sub'
-su -c '/data/adb/modules/netproxy/scripts/cli sub update-all'
-```
-
-### 4. 切换节点
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node list'
-su -c '/data/adb/modules/netproxy/scripts/cli node use 节点名称'
-```
-
-### 5. 切换模式
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli mode'
-su -c '/data/adb/modules/netproxy/scripts/cli mode rule'
-su -c '/data/adb/modules/netproxy/scripts/cli mode global'
-su -c '/data/adb/modules/netproxy/scripts/cli mode direct'
-```
-
-### 6. 查看面板地址
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli api ui
-```
-
----
-
-## CLI 概览
+1. 在 Magisk、KernelSU 或 APatch 中刷入模块。
+2. 重启设备。
+3. 编辑 Xray 配置：
 
 ```text
-cli service {status|start|stop|restart|logs}
-cli node {list|current|use|add|import|export|show|remove|delay}
-cli mode [rule|global|direct]
-cli sub {list|add|update|update-all|remove}
-cli api {groups|conns|close|close-all|ui}
-cli app {list|mode|add|remove|enable|disable}
-cli tproxy {status|reload|quic|cnip}
+/data/adb/modules/netproxy/config/xray/config.json
 ```
 
-完整帮助：
+4. 将默认的 `proxy` 出站替换成自己的 Xray 出站，例如 VLESS、Trojan、VMess、Shadowsocks 或 SOCKS。
+5. 除非你同时修改 `tproxy.conf`，否则保留出站上的 mark：
+
+```json
+"streamSettings": {
+  "sockopt": {
+    "mark": 2
+  }
+}
+```
+
+6. 校验并启动：
 
 ```sh
-su -c /data/adb/modules/netproxy/scripts/cli help
+su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli service start'
 ```
 
----
+## 重要默认值
 
-## 默认配置说明
+- Xray 配置：`/data/adb/modules/netproxy/config/xray/config.json`
+- Xray 资源目录：`/data/adb/modules/netproxy/config/xray`
+- 透明代理 TCP 端口：`1536`
+- 透明代理 UDP 端口：`1536`
+- DNS 劫持端口：`1536`
+- Xray 出站 mark：`2`
+- TProxy 路由 mark：IPv4 为 `20`，IPv6 为 `25`
 
-`module.conf` 默认项：
+默认配置里的 `proxy` 出站暂时是 `freedom`，目的是让模块在没有真实服务器配置时也能启动。真正走代理前，需要把这个出站替换成你的节点配置，并保留 tag 名称 `proxy`。
 
-- `AUTO_START=1`
-- `OUTBOUND_MODE=rule`
-- `SELECTOR_MODE=urltest`
-- `GMS_FIX=0`
-- `CURRENT_CONFIG=`（导入并选择节点后写入）
+## CLI
 
-`tproxy.conf` 默认项中较常用的部分：
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli service status'
+su -c '/data/adb/modules/netproxy/scripts/cli service restart'
+su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli tproxy status'
+su -c '/data/adb/modules/netproxy/scripts/cli app list'
+```
 
-- `PROXY_TCP_PORT=1536`
-- `PROXY_UDP_PORT=1536`
-- `DNS_PORT=1536`
-- `PROXY_MODE=0`
-- `BLOCK_QUIC=1`
-- `BYPASS_CN_IP=0`
-- `LOG_TIMESTAMP=0`
+## 更新 Xray
 
-其中：
+本项目不在模块构建流程里编译 Xray-core。直接使用官方 release 资产：
 
-- `PROXY_MODE=0` 表示自动检测 TPROXY，不支持时回退为 REDIRECT
-- `LOG_TIMESTAMP=0` 表示默认关闭透明代理脚本日志时间戳
+```text
+https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-android-arm64-v8a.zip
+```
 
----
+将压缩包里的文件放到模块对应位置：
 
-## 兼容性说明
+- `xray` -> `src/module/bin/xray`
+- `geoip.dat` -> `src/module/config/xray/geoip.dat`
+- `geosite.dat` -> `src/module/config/xray/geosite.dat`
 
-- 支持 **Magisk / KernelSU / APatch**
-- 透明代理脚本保留 TPROXY 自动检测与 REDIRECT 回退能力
-- 模块内集成 IPSET LKM，用于增强部分设备与内核版本下的兼容性
-- 已包含针对部分 OnePlus / ColorOS 等环境的兼容性修复逻辑
+## 参考
 
----
+- [Xray-core v26.3.27 release](https://github.com/XTLS/Xray-core/releases/tag/v26.3.27)
+- Xray 配置文档：`../Xray-docs-next`
+- Xray 源码：`../Xray-core`
 
-## 交流
+## License
 
-<p align="center">
-  <a href="https://t.me/NetProxy_Magisk">
-    <img src="https://img.shields.io/badge/Telegram-加入群组-blue?style=for-the-badge&logo=telegram" alt="Telegram Group" />
-  </a>
-</p>
-
----
-
-## 贡献
-
-欢迎参与项目：
-
-- 提交 Issue 反馈问题
-- 提出功能建议
-- 提交 Pull Request
-- Star 支持项目
-
----
-
-## 鸣谢
-
-本项目离不开以下开源项目：
-
-| 项目 | 说明 |
-|------|------|
-| [sing-box](https://github.com/SagerNet/sing-box) | 当前核心代理引擎 |
-| [Proxylink](https://github.com/Fanju6/Proxylink) | 节点链接、订阅与配置转换 |
-| [AndroidTProxyShell](https://github.com/CHIZI-0618/AndroidTProxyShell) | Android 透明代理实现参考 |
-| [IPSET_LKM](https://github.com/TanakaLun/IPSET_LKM) | IPSET 内核模块与兼容性支持参考 |
-| [zashboard](https://github.com/Zephyruso/zashboard) | Clash API 前端面板 |
-| [v2rayNG](https://github.com/2dust/v2rayNG) | 部分节点解析逻辑参考 |
-
----
-
-## 许可证
-
-[GPL-3.0 License](LICENSE)
-
-## Star
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Fanju6/NetProxy-Magisk&type=date&legend=top-left)](https://www.star-history.com/#Fanju6/NetProxy-Magisk&type=date&legend=top-left)
+GPL-3.0

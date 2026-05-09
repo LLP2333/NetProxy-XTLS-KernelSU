@@ -2,43 +2,51 @@
 
 ## 安装前准备
 
-- 设备已具备 Root 环境
-- 已安装 **Magisk / KernelSU / APatch** 之一
-- 已准备可用节点或订阅
+- 设备已具备 Root 环境。
+- 已安装 Magisk、KernelSU 或 APatch。
+- 已准备可用的 Xray 出站配置。
 
-如果你准备使用 Android 管理器，可通过 Google Play 安装：[`NetProxy`](https://play.google.com/store/apps/details?id=com.fanjv.netproxy)。当前应用包名为 `com.fanjv.netproxy`，`minSdk` 为 **31**。
+当前版本不处理订阅或分享链接。请先把你的节点转换为 Xray 原生 JSON 出站配置。
 
 ## 安装模块
 
-1. 从 [NetProxy Releases](https://github.com/Fanju6/NetProxy-Magisk/releases) 下载最新模块 ZIP
-2. 在 **Magisk / KernelSU / APatch** 中刷入模块
-3. 重启设备
-4. 通过 Android 管理器、CLI 或 zashboard 继续配置
+1. 从 [NetProxy Releases](https://github.com/Fanju6/NetProxy-Magisk/releases) 下载模块 ZIP。
+2. 在 Magisk、KernelSU 或 APatch 中刷入模块。
+3. 重启设备。
+4. 编辑 `/data/adb/modules/netproxy/config/xray/config.json`。
+5. 执行配置校验并启动服务。
 
-## 安装后建议先做的事
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli service start'
+```
 
-1. 导入一个可用节点或订阅
-2. 启动服务
-3. 确认当前模式为 `rule`
-4. 访问 `http://<设备IP>:9999/ui` 检查控制面板是否可用
+## 安装后检查
+
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli service status'
+su -c '/data/adb/modules/netproxy/scripts/cli tproxy status'
+su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+```
+
+如果 `xray test` 失败，先修正 `config.json`，再启动服务。
 
 ## Android 管理器
 
-如果你需要图形化管理：
+如果你需要图形化管理，可安装 Android 管理器：
 
 - 下载地址：[`NetProxy - Google Play`](https://play.google.com/store/apps/details?id=com.fanjv.netproxy)
 - 应用包名：`com.fanjv.netproxy`
-- 当前不提供公开源码仓库
-- 推荐将模块与管理器配合使用
 
-## 从 6.x 升级到 7.x
+当前模块的核心配置仍以手写 Xray JSON 为准。图形化入口适合查看状态、日志和常用透明代理项。
 
-7.x 是大版本迁移，请重点注意：
+## 从旧版本升级
 
-- 核心从 Xray 切换为 sing-box
-- 内置 WebUI 已移除
-- 配置目录由 `config/xray` 迁移到 `config/singbox`
-- 新的图形化入口是 Android 管理器
-- 新的默认控制入口是 Clash API + zashboard
+升级到 Xray 版本后，旧的节点目录、订阅目录、控制接口和面板不再使用。请重点检查：
 
-升级细节请继续阅读：[6.x 到 7.x 升级](/guide/upgrade-v7)
+- `/data/adb/modules/netproxy/config/xray/config.json` 是否存在。
+- `config.json` 内是否有 tag 为 `proxy` 的可用出站。
+- 所有需要发起外连的出站是否设置 `streamSettings.sockopt.mark=2`。
+- `config/tproxy/tproxy.conf` 是否保留 `ROUTING_MARK="2"`。
+
+旧配置不会自动转换成 Xray 配置。

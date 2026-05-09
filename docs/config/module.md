@@ -1,67 +1,50 @@
 # module.conf
 
-`module.conf` 是 NetProxy 的模块级默认配置文件，位于：
+模块级配置位于：
 
 ```text
 /data/adb/modules/netproxy/config/module.conf
 ```
 
-它主要决定服务启动后的默认行为，而不是透明代理底层细节。
-
-## 当前常用项
-
-### `AUTO_START`
-
-- 默认值：`1`
-- 作用：是否在系统启动后自动拉起 NetProxy 服务
-
-### `OUTBOUND_MODE`
-
-- 默认值：`rule`
-- 可选值：`rule` / `global` / `direct`
-- 作用：控制默认出站模式
-
-对应含义：
-
-- `rule`：按规则分流
-- `global`：除直连保留项外尽量走代理
-- `direct`：全局直连
-
-### `SELECTOR_MODE`
-
-- 默认值：`urltest`
-- 可选值：`manual` / `urltest`
-- 作用：控制运行时代理组生成方式
-
-含义：
-
-- `manual`：以手动选择为主
-- `urltest`：生成动态测速组，优先选择更低延迟节点
-
-### `GMS_FIX`
-
-- 默认值：`0`
-- 可选值：`0` / `1`
-- 作用：启用设备兼容性修复逻辑，主要用于部分 Google Play / GMS 相关联网问题
-
-### `CURRENT_CONFIG`
-
-- 默认值：
+## 默认配置
 
 ```text
-CURRENT_CONFIG=""
+AUTO_START=1
+GMS_FIX=0
+XRAY_CONFIG="/data/adb/modules/netproxy/config/xray/config.json"
 ```
 
-- 作用：记录当前选中的 sing-box 节点配置文件
+## AUTO_START
 
-通常不建议手动填写到模块外部路径，推荐让 Android 管理器或 CLI 维护这个值。
+```text
+AUTO_START=1
+```
 
-## 推荐修改方式
+- `1`：开机后自动启动 NetProxy 服务。
+- `0`：开机不自动启动，需要手动执行 `cli service start`。
 
-优先顺序：
+## GMS_FIX
 
-1. Android 管理器
-2. CLI
-3. 手动编辑配置文件
+```text
+GMS_FIX=0
+```
 
-如果你手动修改了 `module.conf`，建议随后重启服务，确保运行时状态和持久化配置一致。
+用于执行模块内的设备兼容性修复脚本。默认关闭。
+
+## XRAY_CONFIG
+
+```text
+XRAY_CONFIG="/data/adb/modules/netproxy/config/xray/config.json"
+```
+
+Xray 主配置文件路径。服务启动时会执行：
+
+```sh
+bin/xray run -config "$XRAY_CONFIG"
+```
+
+如果你把配置放到其他位置，确保：
+
+- 文件对 root 可读。
+- 配置中的日志路径存在或可创建。
+- `geoip.dat` 和 `geosite.dat` 仍位于 `config/xray/`，或你同步修改了 Xray asset 路径相关启动脚本。

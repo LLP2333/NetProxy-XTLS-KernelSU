@@ -1,277 +1,112 @@
-<p align="center">
-  <img src="image/logo.png" alt="NetProxy Logo" width="120" />
-</p>
+# NetProxy
 
-<h1 align="center">NetProxy</h1>
+Android system-level transparent proxy module based on **Xray-core**.
 
-<p align="center">
-  <strong>Android System-Level sing-box Transparent Proxy Module</strong><br>
-  Supports Android Manager, TPROXY / REDIRECT, TCP / UDP, Clash API, zashboard, per-app proxy, and subscription management
-</p>
-
-<p align="center">
-  <a href="https://github.com/Fanju6/NetProxy-Magisk/releases">
-    <img src="https://img.shields.io/github/v/release/Fanju6/NetProxy-Magisk?style=flat-square&label=Release&color=blue" alt="Latest Release" />
-  </a>
-  <a href="https://github.com/Fanju6/NetProxy-Magisk/releases">
-    <img src="https://img.shields.io/github/downloads/Fanju6/NetProxy-Magisk/total?style=flat-square&color=green" alt="Downloads" />
-  </a>
-  <img src="https://img.shields.io/badge/sing--box-Core-blueviolet?style=flat-square" alt="sing-box Core" />
-</p>
-
-<p align="center">
-  <a href="README_ZH.md">中文</a> | English
-</p>
-
----
+This branch runs Xray with a hand-written JSON config. It does not import node links, update subscriptions, expose a Clash API, or bundle a web panel.
 
 ## Features
 
-| Feature | Description |
-|------|------|
-| **Android Manager** | Native Android app with a modern interface for module management |
-| **Clash API / zashboard** | Clash API enabled by default with built-in zashboard |
-| **Transparent Proxy** | Supports TPROXY / REDIRECT with TCP, UDP, and DNS hijacking |
-| **Per-App Proxy** | Blacklist / whitelist modes for precise app-level control |
-| **Routing Rules** | Custom domain, IP, port, and traffic routing rules |
-| **DNS Settings** | Configurable DNS behavior and related proxy DNS options |
-| **Nodes & Subscriptions** | Import from links, files, and subscriptions, then convert to sing-box configs |
-| **Hotspot Sharing** | Proxy Wi-Fi hotspot and USB tethering traffic |
-| **Hot Switching** | Switch nodes without a full module reinstall |
-| **Kernel Compatibility** | Integrated IPSET LKM for wider kernel compatibility |
+- Xray-core v26.3.27 for Android arm64.
+- Transparent proxy through Android iptables/ipset rules.
+- Default TProxy mode for TCP, UDP, and DNS traffic.
+- Per-app proxy allowlist/blocklist support.
+- Built-in `geoip.dat` and `geosite.dat` for Xray routing rules.
+- CLI for service control, Xray config checks, logs, app rules, and tproxy rules.
 
----
-
-## Screenshots
-
-<div align="center">
-  <img src="image/Screenshot.jpg" width="60%" alt="Interface Preview" />
-</div>
-
----
-
-## Interface & Control Entry Points
-
-The old built-in module WebUI has been removed. NetProxy is now managed through:
-
-1. **Android Manager**
-2. **CLI**
-3. **Clash API + zashboard**
-
-The Android Manager is a separately maintained native Android application that provides dashboard, nodes, subscriptions, per-app proxy, logs, and module configuration management. Install it from Google Play: [`NetProxy`](https://play.google.com/store/apps/details?id=com.fanjv.netproxy)
-
-There is no public source repository for the manager app.
-
-Default control endpoints:
-
-- Controller: `http://<device-ip>:9999`
-- UI: `http://<device-ip>:9999/ui`
-- Secret: `singbox`
-
----
-
-## Installation
-
-1. Download the latest ZIP from [Releases](https://github.com/Fanju6/NetProxy-Magisk/releases)
-2. Flash the module in **Magisk / KernelSU / APatch**
-3. Reboot your device
-4. Finish configuration through Android Manager, CLI, or zashboard
-
----
-
-## Directory Structure
+## Module Layout
 
 ```text
-/data/adb/modules/netproxy/
+src/module/
 ├─ bin/
-│  ├─ sing-box                 # sing-box core
-│  ├─ proxylink                # node / subscription conversion tool
-│  ├─ ipset                    # ipset binary
-│  ├─ IPSET-LKM/               # integrated IPSET kernel modules
-│  └─ zashboard/               # built-in control panel
+│  ├─ xray                    # Xray-core Android arm64 binary
+│  └─ ipset                   # optional ipset helper
 ├─ config/
-│  ├─ module.conf              # module configuration
-│  ├─ tproxy/
-│  │  └─ tproxy.conf           # transparent proxy configuration
-│  └─ singbox/
-│     ├─ confdir/              # common sing-box configuration
-│     ├─ outbounds/            # node directories
-│     │  ├─ default/
-│     │  └─ sub_xxx/
-│     ├─ runtime/              # runtime-generated configuration
-│     └─ source/               # routing rules and rule sets
-├─ logs/
-│  ├─ service.log
-│  ├─ sing-box.log
-│  └─ subscription.log
+│  ├─ module.conf             # module-level settings
+│  ├─ tproxy/tproxy.conf      # transparent proxy rules
+│  └─ xray/
+│     ├─ config.json          # hand-written Xray config
+│     ├─ geoip.dat
+│     └─ geosite.dat
 ├─ scripts/
 │  ├─ cli
-│  ├─ core/
-│  ├─ network/
-│  └─ utils/
-├─ post-fs-data.sh
-└─ service.sh
+│  ├─ core/service.sh
+│  └─ network/tproxy.sh
+└─ logs/
+   ├─ service.log
+   └─ xray.log
 ```
-
----
 
 ## Quick Start
 
-### 1. Check status
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli service status
-```
-
-### 2. Start / stop the service
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli service start
-su -c /data/adb/modules/netproxy/scripts/cli service stop
-su -c /data/adb/modules/netproxy/scripts/cli service restart
-```
-
-### 3. Import nodes
-
-Single link:
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node add "vless://..."'
-```
-
-Import from file:
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node import /sdcard/clash.yaml'
-```
-
-Add and update subscriptions:
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli sub add MySub https://example.com/sub'
-su -c '/data/adb/modules/netproxy/scripts/cli sub update-all'
-```
-
-### 4. Switch nodes
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node list'
-su -c '/data/adb/modules/netproxy/scripts/cli node use NodeName'
-```
-
-### 5. Switch mode
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli mode'
-su -c '/data/adb/modules/netproxy/scripts/cli mode rule'
-su -c '/data/adb/modules/netproxy/scripts/cli mode global'
-su -c '/data/adb/modules/netproxy/scripts/cli mode direct'
-```
-
-### 6. Show panel endpoints
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli api ui
-```
-
----
-
-## CLI Overview
+1. Flash the module in Magisk, KernelSU, or APatch.
+2. Reboot the device.
+3. Edit the Xray config:
 
 ```text
-cli service {status|start|stop|restart|logs}
-cli node {list|current|use|add|import|export|show|remove|delay}
-cli mode [rule|global|direct]
-cli sub {list|add|update|update-all|remove}
-cli api {groups|conns|close|close-all|ui}
-cli app {list|mode|add|remove|enable|disable}
-cli tproxy {status|reload|quic|cnip}
+/data/adb/modules/netproxy/config/xray/config.json
 ```
 
-Full help:
+4. Replace the default `proxy` outbound with your own Xray outbound, such as VLESS, Trojan, VMess, Shadowsocks, or SOCKS.
+5. Keep this outbound field unless you also change `tproxy.conf`:
+
+```json
+"streamSettings": {
+  "sockopt": {
+    "mark": 2
+  }
+}
+```
+
+6. Test and start:
 
 ```sh
-su -c /data/adb/modules/netproxy/scripts/cli help
+su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli service start'
 ```
 
----
+## Important Defaults
 
-## Default Configuration Notes
+- Xray config: `/data/adb/modules/netproxy/config/xray/config.json`
+- Xray asset directory: `/data/adb/modules/netproxy/config/xray`
+- Transparent proxy TCP port: `1536`
+- Transparent proxy UDP port: `1536`
+- DNS hijack port: `1536`
+- Xray outbound mark: `2`
+- TProxy route mark: `20` for IPv4, `25` for IPv6
 
-Default values in `module.conf`:
+The default Xray config intentionally keeps `proxy` as a `freedom` outbound so the module can start before you add a real server. Real proxying starts after you replace that outbound while keeping the tag name `proxy`.
 
-- `AUTO_START=1`
-- `OUTBOUND_MODE=rule`
-- `SELECTOR_MODE=urltest`
-- `GMS_FIX=0`
-- `CURRENT_CONFIG=` (empty until a node is selected)
+## CLI
 
-Common defaults in `tproxy.conf`:
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli service status'
+su -c '/data/adb/modules/netproxy/scripts/cli service restart'
+su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli tproxy status'
+su -c '/data/adb/modules/netproxy/scripts/cli app list'
+```
 
-- `PROXY_TCP_PORT=1536`
-- `PROXY_UDP_PORT=1536`
-- `DNS_PORT=1536`
-- `PROXY_MODE=0`
-- `BLOCK_QUIC=1`
-- `BYPASS_CN_IP=0`
-- `LOG_TIMESTAMP=0`
+## Updating Xray
 
-Notes:
+This project does not build Xray-core locally. Replace the bundled files from the official release asset:
 
-- `PROXY_MODE=0` means auto-detect TPROXY and fall back to REDIRECT when unavailable
-- `LOG_TIMESTAMP=0` disables timestamp output in transparent proxy script logs by default
+```text
+https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-android-arm64-v8a.zip
+```
 
----
+Copy these files into the module:
 
-## Compatibility
+- `xray` -> `src/module/bin/xray`
+- `geoip.dat` -> `src/module/config/xray/geoip.dat`
+- `geosite.dat` -> `src/module/config/xray/geosite.dat`
 
-- Supports **Magisk / KernelSU / APatch**
-- Transparent proxy scripts retain automatic TPROXY detection with REDIRECT fallback
-- Integrated IPSET LKM improves compatibility across more devices and kernel versions
-- Includes compatibility handling for some OnePlus / ColorOS environments
+## References
 
----
-
-## Community
-
-<p align="center">
-  <a href="https://t.me/NetProxy_Magisk">
-    <img src="https://img.shields.io/badge/Telegram-Join%20Group-blue?style=for-the-badge&logo=telegram" alt="Telegram Group" />
-  </a>
-</p>
-
----
-
-## Contributing
-
-Contributions are welcome:
-
-- Submit Issues to report problems
-- Suggest new features
-- Submit Pull Requests
-- Star the project to support it
-
----
-
-## Acknowledgments
-
-This project builds on the following open-source projects:
-
-| Project | Description |
-|------|------|
-| [sing-box](https://github.com/SagerNet/sing-box) | Current core proxy engine |
-| [Proxylink](https://github.com/Fanju6/Proxylink) | Node links, subscriptions, and config conversion |
-| [AndroidTProxyShell](https://github.com/CHIZI-0618/AndroidTProxyShell) | Reference for Android transparent proxy implementation |
-| [IPSET_LKM](https://github.com/TanakaLun/IPSET_LKM) | Reference for IPSET kernel modules and compatibility support |
-| [zashboard](https://github.com/Zephyruso/zashboard) | Frontend panel for Clash API |
-| [v2rayNG](https://github.com/2dust/v2rayNG) | Reference for parts of node parsing logic |
-
----
+- [Xray-core v26.3.27 release](https://github.com/XTLS/Xray-core/releases/tag/v26.3.27)
+- Xray config reference: `../Xray-docs-next`
+- Xray source reference: `../Xray-core`
 
 ## License
 
-[GPL-3.0 License](LICENSE)
-
-## Star
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Fanju6/NetProxy-Magisk&type=date&legend=top-left)](https://www.star-history.com/#Fanju6/NetProxy-Magisk&type=date&legend=top-left)
+GPL-3.0

@@ -1,76 +1,86 @@
 # 快速开始
 
-这是一条最短闭环：安装模块、导入节点、启动服务、切换模式、验证面板。
+## 1. 编辑 Xray 配置
 
-## 1. 检查服务状态
+配置文件路径：
 
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli service status
+```text
+/data/adb/modules/netproxy/config/xray/config.json
 ```
 
-## 2. 导入节点或订阅
+默认配置中有一个 tag 为 `proxy` 的 `freedom` 出站，它只是占位。把它替换成你的真实代理出站，保留 tag：
 
-### 单个链接
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node add "vless://..."'
+```json
+{
+  "tag": "proxy",
+  "protocol": "vless",
+  "settings": {},
+  "streamSettings": {
+    "sockopt": {
+      "mark": 2
+    }
+  }
+}
 ```
 
-### 导入节点文件或 Clash YAML
+`settings` 和传输层字段按你的节点实际情况填写。
 
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node import /sdcard/clash.yaml'
+## 2. 保持端口一致
+
+默认透明代理入站端口是 `1536`。Xray 入站和 `tproxy.conf` 需要一致：
+
+```json
+{
+  "tag": "tproxy-in",
+  "port": 1536,
+  "protocol": "dokodemo-door"
+}
 ```
 
-### 添加订阅并更新
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli sub add 我的订阅 https://example.com/sub'
-su -c '/data/adb/modules/netproxy/scripts/cli sub update-all'
+```text
+PROXY_TCP_PORT="1536"
+PROXY_UDP_PORT="1536"
+DNS_PORT="1536"
 ```
 
-## 3. 选择节点
+## 3. 校验配置
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli node list'
-su -c '/data/adb/modules/netproxy/scripts/cli node use 节点名称'
+su -c '/data/adb/modules/netproxy/scripts/cli xray test'
 ```
+
+看到 `Configuration OK.` 后再启动。
 
 ## 4. 启动服务
 
 ```sh
-su -c /data/adb/modules/netproxy/scripts/cli service start
+su -c '/data/adb/modules/netproxy/scripts/cli service start'
 ```
 
-## 5. 确认出站模式
+查看状态：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli mode'
-su -c '/data/adb/modules/netproxy/scripts/cli mode rule'
+su -c '/data/adb/modules/netproxy/scripts/cli service status'
 ```
 
-可选模式：
-
-- `rule`：规则分流
-- `global`：全局代理
-- `direct`：全局直连
-
-## 6. 打开控制面板
-
-```sh
-su -c /data/adb/modules/netproxy/scripts/cli api ui
-```
-
-默认入口：
-
-- Controller：`http://<设备IP>:9999`
-- UI：`http://<设备IP>:9999/ui`
-- Secret：`singbox`
-
-## 7. 遇到问题先看日志
+## 5. 查看日志
 
 ```sh
 su -c '/data/adb/modules/netproxy/scripts/cli service logs service 80'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs core 80'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs sub 80'
+su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+```
+
+## 6. 常用调整
+
+开启分应用白名单模式：
+
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli app mode whitelist'
+su -c '/data/adb/modules/netproxy/scripts/cli app add com.example.app'
+```
+
+重载透明代理规则：
+
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli tproxy reload'
 ```

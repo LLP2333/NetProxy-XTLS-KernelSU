@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'NetProxy',
-  description: '基于 sing-box 的 Android 透明代理模块',
+  description: '基于 Xray-core 的 Android 透明代理模块',
   lang: 'zh-CN',
   base: '/',
 
@@ -35,8 +35,7 @@ export default defineConfig({
             { text: '项目介绍', link: '/guide/introduction' },
             { text: '模块理念', link: '/guide/philosophy' },
             { text: '安装与升级', link: '/guide/installation' },
-            { text: '快速开始', link: '/guide/quick-start' },
-            { text: '6.x 到 7.x 升级', link: '/guide/upgrade-v7' }
+            { text: '快速开始', link: '/guide/quick-start' }
           ]
         },
         {
@@ -44,9 +43,8 @@ export default defineConfig({
           items: [
             { text: 'Android 管理器', link: '/guide/android-manager' },
             { text: 'CLI 使用', link: '/guide/cli' },
-            { text: '节点与订阅', link: '/guide/nodes-subscriptions' },
-            { text: '透明代理与分应用代理', link: '/guide/transparent-proxy' },
-            { text: 'Clash API 与 zashboard', link: '/guide/control-panel' }
+            { text: 'Xray 手写配置', link: '/guide/xray-config' },
+            { text: '透明代理与分应用代理', link: '/guide/transparent-proxy' }
           ]
         },
         {
@@ -59,7 +57,7 @@ export default defineConfig({
           text: '配置参考',
           items: [
             { text: 'module.conf', link: '/config/module' },
-            { text: 'sing-box 配置', link: '/config/singbox' },
+            { text: 'Xray 配置', link: '/config/xray' },
             { text: 'tproxy.conf', link: '/config/tproxy' },
             { text: '路由与 DNS', link: '/config/routing' }
           ]

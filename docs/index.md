@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: NetProxy
-  text: Android sing-box 透明代理模块
-  tagline: 以 sing-box 为核心，支持 Android 管理器、CLI、Clash API 和 zashboard 的 Android 透明代理模块。
+  text: Android Xray 透明代理模块
+  tagline: 基于 Xray-core，使用手写 config.json 启动的 Android 系统级透明代理模块。
   image:
     src: /logo.png
     alt: NetProxy Logo
@@ -20,16 +20,16 @@ hero:
       link: https://github.com/Fanju6/NetProxy-Magisk
 
 features:
-  - title: sing-box 核心
-    details: 当前版本以 sing-box 为核心，配置、运行时和控制接口都围绕 sing-box 组织。
-  - title: Android 管理器
-    details: 原生 Android 管理器负责仪表盘、节点、订阅、分应用代理、日志和常用配置编辑。
-  - title: CLI + Clash API
-    details: 命令行分组命令与 Clash API / zashboard 并存，既适合日常操作，也方便自动化和排障。
-  - title: TPROXY / REDIRECT
-    details: 保留透明代理自动检测与 REDIRECT 回退能力，覆盖 TCP、UDP、DNS 和分应用代理场景。
-  - title: 节点与订阅
-    details: 支持单链接、文件和订阅三种导入方式，统一转为 sing-box 节点配置。
-  - title: 兼容与排障
-    details: 文档覆盖安装、升级、控制入口、配置参考和常见问题，方便日常使用与排障。
+  - title: Xray-core
+    details: 内置 Xray-core v26.3.27 Android arm64 二进制，模块启动时直接读取手写配置文件。
+  - title: 手写配置
+    details: 主配置位于 config/xray/config.json，节点、路由、DNS 都由 Xray 原生 JSON 配置表达。
+  - title: TProxy 透明代理
+    details: 透明代理层保留 Android iptables/ipset 规则，默认接管 TCP、UDP 和 DNS 流量。
+  - title: 分应用代理
+    details: 继续通过 tproxy.conf 控制应用名单，可用 CLI 快速启用、添加或移除包名。
+  - title: CLI 运维
+    details: 命令行覆盖服务启停、Xray 配置校验、日志查看和透明代理规则重载。
+  - title: 精简运行链路
+    details: 不内置订阅转换、控制 API 或网页面板，运行时行为由 Xray 配置和透明代理规则共同决定。
 ---
