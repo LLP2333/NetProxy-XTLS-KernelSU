@@ -59,11 +59,6 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
-      },
-      "streamSettings": {
-        "sockopt": {
-          "mark": 255
-        }
       }
     },
     {
@@ -71,11 +66,6 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
-      },
-      "streamSettings": {
-        "sockopt": {
-          "mark": 255
-        }
       }
     },
     {
@@ -89,12 +79,7 @@
     },
     {
       "tag": "dns-out",
-      "protocol": "dns",
-      "streamSettings": {
-        "sockopt": {
-          "mark": 255
-        }
-      }
+      "protocol": "dns"
     }
   ],
   "routing": {

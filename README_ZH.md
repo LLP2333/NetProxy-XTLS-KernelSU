@@ -61,7 +61,7 @@ zip 内的文件必须在根目录层级（不能套一层文件夹），打包�
 /data/adb/modules/netproxy/config/xray/config.json
 ```
 
-4. 将默认的 `proxy` 出站（`freedom`）替换成自己的 Xray 出站，例如 VLESS、Trojan、VMess、Shadowsocks 或 SOCKS。**所有出站都必须保留 `"sockopt": { "mark": 255 }`**，否则会导致流量回环。
+4. 将默认的 `proxy` 出站（`freedom`）替换成自己的 Xray 出站，例如 VLESS、Trojan、VMess、Shadowsocks 或 SOCKS。出站 **不需要** 设置 `sockopt.mark`，模块通过 owner match 防止回环。
 5. 校验配置：
 
 ```sh
@@ -89,14 +89,13 @@ su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 
 **防回环机制：**
 
-Xray 所有出站配置 `sockopt.mark: 255`，发出的包自带 fwmark。OUTPUT 链检测到此标记后直接放行，避免将 Xray 自身的流量再送回 TPROXY。
+Xray 以 `root:net_admin` 身份运行。OUTPUT 链通过 iptables `-m owner --uid-owner root --gid-owner net_admin` 匹配代理进程自身的流量并直接放行，不再依赖 `sockopt.mark`。因此用户编写 Xray 出站配置时 **无需** 添加 `sockopt.mark` 字段。
 
 ## 重要默认值
 
 - Xray 配置：`/data/adb/modules/netproxy/config/xray/config.json`
 - Xray 资源目录：`/data/adb/modules/netproxy/config/xray`
 - 透明代理端口：`12345`（`module.conf` 中 `TPROXY_PORT`）
-- 路由标记：`255`（`module.conf` 中 `FWMARK`，与 Xray `sockopt.mark` 一致）
 
 默认配置里的 `proxy` 出站暂时是 `freedom`，目的是让模块在没有真实服务器配置时也能启动。真正走代理前，需要把这个出站替换成你的节点配置，并保留 tag 名称 `proxy`。
 
