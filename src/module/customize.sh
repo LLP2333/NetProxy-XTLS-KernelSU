@@ -9,15 +9,15 @@ SKIPUNZIP=1
 
 readonly MODULE_ID="netproxy"
 readonly LIVE_DIR="/data/adb/modules/$MODULE_ID"
-readonly CONFIG_DIR="$LIVE_DIR/config"
 readonly BACKUP_DIR="$TMPDIR/netproxy_backup"
+readonly MANIFEST="$TMPDIR/netproxy_manifest.txt"
 
 PROXY_WAS_RUNNING=false
 
-# 需要保留的配置文件/目录 (相对于 config/)
-readonly PRESERVE_CONFIGS="
-    module.conf
-    xray/
+# 升级时保留的用户配置文件（相对于模块根目录）
+readonly PRESERVE_USER_FILES="
+    config/module.conf
+    config/xray/config.json
 "
 
 # 需要设置可执行权限的文件
@@ -26,8 +26,10 @@ readonly EXECUTABLE_FILES="
     action.sh
     scripts/cli
     scripts/core/service.sh
-    scripts/utils/gms_fix.sh
 "
+
+# 运行时目录，不参与清单比对和同步（相对于模块根目录）
+readonly RUNTIME_DIRS="logs trash"
 
 ################################################################################
 # 工具函数
@@ -60,6 +62,30 @@ dir_not_empty() {
   [ -d "$1" ] && [ "$(ls -A "$1" 2> /dev/null)" ]
 }
 
+is_runtime_path() {
+  local rel="$1" d
+  for d in $RUNTIME_DIRS; do
+    case "$rel" in
+      "$d"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+is_preserved_file() {
+  local rel="$1" pf
+  for pf in $PRESERVE_USER_FILES; do
+    [ "$rel" = "$pf" ] && return 0
+  done
+  return 1
+}
+
+generate_manifest() {
+  find "$MODPATH" -type f | while IFS= read -r f; do
+    printf '%s\n' "${f#$MODPATH/}"
+  done | sort > "$MANIFEST"
+}
+
 ################################################################################
 # 核心函数
 ################################################################################
@@ -67,25 +93,24 @@ dir_not_empty() {
 backup_config() {
   print_step "检查现有配置..."
 
-  if ! dir_not_empty "$CONFIG_DIR"; then
+  if [ ! -d "$LIVE_DIR" ]; then
     print_ok "全新安装，无需备份"
     return 0
   fi
 
-  print_step "备份现有配置..."
+  print_step "备份用户配置..."
   mkdir -p "$BACKUP_DIR"
 
-  local config_item
-  for config_item in $PRESERVE_CONFIGS; do
-    local src="$CONFIG_DIR/$config_item"
-    local dst="$BACKUP_DIR/$config_item"
-
-    if [ -e "$src" ]; then
+  local pf
+  for pf in $PRESERVE_USER_FILES; do
+    local src="$LIVE_DIR/$pf"
+    if [ -f "$src" ]; then
+      local dst="$BACKUP_DIR/$pf"
       mkdir -p "$(dirname "$dst")"
-      if cp -r "$src" "$dst" 2> /dev/null; then
-        print_ok "已备份: $config_item"
+      if cp "$src" "$dst" 2> /dev/null; then
+        print_ok "已备份: $pf"
       else
-        print_warn "备份失败: $config_item"
+        print_warn "备份失败: $pf"
       fi
     fi
   done
@@ -101,7 +126,8 @@ extract_module() {
     return 1
   fi
 
-  print_ok "模块文件已解压"
+  generate_manifest
+  print_ok "模块文件已解压（清单: $(wc -l < "$MANIFEST") 个文件）"
   return 0
 }
 
@@ -110,20 +136,18 @@ restore_config() {
     return 0
   fi
 
-  print_step "恢复配置文件..."
+  print_step "恢复用户配置..."
 
-  local config_item
-  for config_item in $PRESERVE_CONFIGS; do
-    local src="$BACKUP_DIR/$config_item"
-    local dst="$MODPATH/config/$config_item"
-
-    if [ -e "$src" ]; then
+  local pf
+  for pf in $PRESERVE_USER_FILES; do
+    local src="$BACKUP_DIR/$pf"
+    if [ -f "$src" ]; then
+      local dst="$MODPATH/$pf"
       mkdir -p "$(dirname "$dst")"
-      rm -rf "$dst" 2> /dev/null
-      if cp -r "$src" "$dst" 2> /dev/null; then
-        print_ok "已恢复: $config_item"
+      if cp -f "$src" "$dst" 2> /dev/null; then
+        print_ok "已恢复: $pf"
       else
-        print_warn "恢复失败: $config_item"
+        print_warn "恢复失败: $pf"
       fi
     fi
   done
@@ -154,57 +178,55 @@ sync_to_live() {
     return 0
   fi
 
-  local sync_dirs="bin scripts action.sh service.sh post-fs-data.sh module.prop"
+  if [ ! -f "$MANIFEST" ]; then
+    print_warn "清单文件不存在，跳过同步"
+    return 0
+  fi
 
-  for item in $sync_dirs; do
-    local src="$MODPATH/$item"
-    local dst="$LIVE_DIR/$item"
+  # ── 阶段 1: 将清单内的文件同步到运行时目录 ──
+  print_step "更新模块文件..."
+  local updated=0
+  while IFS= read -r rel; do
+    is_runtime_path "$rel" && continue
 
-    if [ -e "$src" ]; then
-      rm -rf "$dst" 2> /dev/null
-      if cp -r "$src" "$dst" 2> /dev/null; then
-        print_ok "已同步: $item"
-      else
-        print_warn "同步失败: $item"
-      fi
+    local src="$MODPATH/$rel"
+    local dst="$LIVE_DIR/$rel"
+
+    if is_preserved_file "$rel" && [ -f "$dst" ]; then
+      continue
+    fi
+
+    mkdir -p "$(dirname "$dst")"
+    if cp -f "$src" "$dst" 2> /dev/null; then
+      updated=$((updated + 1))
+    fi
+  done < "$MANIFEST"
+  print_ok "已更新 $updated 个文件"
+
+  # ── 阶段 2: 将不在清单上的文件移至 trash ──
+  print_step "清理旧版本文件..."
+  local trash_dir="$LIVE_DIR/trash"
+  local trashed=0
+
+  find "$LIVE_DIR" -type f | while IFS= read -r f; do
+    local rel="${f#$LIVE_DIR/}"
+    is_runtime_path "$rel" && continue
+
+    if ! grep -qxF "$rel" "$MANIFEST"; then
+      local dst="$trash_dir/$rel"
+      mkdir -p "$(dirname "$dst")"
+      mv "$f" "$dst" 2> /dev/null
+      print_ok "已移至回收站: $rel"
     fi
   done
 
-  # 增量更新配置（不覆盖已有文件）
-  if [ -d "$MODPATH/config" ]; then
-    print_step "增量更新配置..."
-    find "$MODPATH/config" -type f | while IFS= read -r src_file; do
-      local rel_path="${src_file#$MODPATH/config/}"
-      local dst_file="$LIVE_DIR/config/$rel_path"
-      if [ ! -e "$dst_file" ]; then
-        mkdir -p "$(dirname "$dst_file")"
-        cp "$src_file" "$dst_file" 2> /dev/null
-      fi
-    done
-    print_ok "配置目录已增量更新"
-  fi
+  # 清理空目录（保留 logs 和 trash）
+  find "$LIVE_DIR" -mindepth 1 -type d -empty \
+    ! -path "$LIVE_DIR/logs" \
+    ! -path "$LIVE_DIR/trash" ! -path "$LIVE_DIR/trash/*" \
+    -delete 2> /dev/null
 
-  # 清理旧版本残留（tproxy 相关文件等）
-  print_step "清理旧版本残留..."
-  rm -rf "$LIVE_DIR/config/tproxy" 2> /dev/null
-  rm -f "$LIVE_DIR/scripts/network/tproxy.sh" 2> /dev/null
-  rm -f "$LIVE_DIR/scripts/utils/ipset.sh" 2> /dev/null
-  rm -rf "$LIVE_DIR/bin/IPSET-LKM" 2> /dev/null
-  rm -f "$LIVE_DIR/bin/ipset" 2> /dev/null
-  if [ -d "$LIVE_DIR/config" ]; then
-    find "$LIVE_DIR/config" -mindepth 1 -maxdepth 1 \
-      ! -name "module.conf" \
-      ! -name "xray" \
-      -exec rm -rf {} + 2> /dev/null
-  fi
-  if [ -d "$LIVE_DIR/logs" ]; then
-    find "$LIVE_DIR/logs" -mindepth 1 -maxdepth 1 \
-      ! -name "service.log" \
-      ! -name "xray.log" \
-      -exec rm -rf {} + 2> /dev/null
-  fi
-  print_ok "旧版本残留已清理"
-
+  print_ok "同步完成"
   return 0
 }
 
@@ -236,47 +258,9 @@ set_permissions() {
   return 0
 }
 
-ask_install_app() {
-  ui_print ""
-  ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  ui_print "  是否安装 NetProxy 配套应用？"
-  ui_print "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  ui_print ""
-  ui_print "  [音量+] 安装 (打开 Google Play)"
-  ui_print "  [音量-] 跳过"
-  ui_print ""
-
-  local timeout=10
-  local choice=""
-
-  while [ $timeout -gt 0 ]; do
-    local key=$(getevent -lqc 1 2> /dev/null | grep -E "KEY_VOLUME(UP|DOWN)" | head -1)
-
-    if echo "$key" | grep -q "VOLUMEUP"; then
-      choice="install"
-      break
-    elif echo "$key" | grep -q "VOLUMEDOWN"; then
-      choice="skip"
-      break
-    fi
-
-    sleep 1
-    timeout=$((timeout - 1))
-  done
-
-  if [ "$choice" = "install" ]; then
-    print_step "正在打开 Google Play..."
-    am start -a android.intent.action.VIEW -d "https://play.google.com/store/apps/details?id=com.fanjv.netproxy" > /dev/null 2>&1
-    print_ok "已打开 Google Play"
-  else
-    print_step "已跳过安装"
-  fi
-
-  return 0
-}
-
 cleanup() {
   rm -rf "$BACKUP_DIR" 2> /dev/null
+  rm -f "$MANIFEST" 2> /dev/null
 }
 
 ################################################################################
@@ -284,9 +268,9 @@ cleanup() {
 ################################################################################
 
 print_title "NetProxy - Xray TUN 透明代理"
-ui_print "  版本: $(grep_prop version "$TMPDIR/module.prop" 2> /dev/null || echo "未知")"
 
 unzip -o "$ZIPFILE" "module.prop" -d "$TMPDIR" > /dev/null 2>&1
+ui_print "  版本: $(grep_prop version "$TMPDIR/module.prop" 2> /dev/null || echo "未知")"
 
 if backup_config \
   && extract_module \
@@ -299,8 +283,6 @@ if backup_config \
   cleanup
 
   print_title "安装完成，请重启设备"
-
-  ask_install_app
 else
   cleanup
   print_title "安装失败"

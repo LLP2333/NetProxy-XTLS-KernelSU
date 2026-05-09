@@ -11,9 +11,7 @@ readonly LOG_FILE="$MODDIR/logs/service.log"
 # 加载模块配置
 #######################################
 load_module_config() {
-  # 设置开机服务默认值
   AUTO_START=1
-  GMS_FIX=0
 
   if [ -f "$MODULE_CONF" ]; then
     . "$MODULE_CONF"
@@ -38,17 +36,6 @@ wait_for_boot() {
     sleep 1
   done
   log "INFO" "存储挂载完成"
-}
-
-#######################################
-# 执行设备特定修复脚本
-#######################################
-check_device_specific() {
-  # 启用时执行设备兼容性修复
-  if [ "$GMS_FIX" = "1" ]; then
-    log "INFO" "GMS 修复已启用，执行修复脚本"
-    sh "$MODDIR/scripts/utils/gms_fix.sh"
-  fi
 }
 
 # 确保日志目录存在
@@ -115,8 +102,5 @@ if [ "$AUTO_START" = "1" ]; then
 else
   log "INFO" "开机自启已禁用，跳过启动"
 fi
-
-# 执行设备兼容性修复
-check_device_specific
 
 log "INFO" "========== 服务启动流程结束 =========="

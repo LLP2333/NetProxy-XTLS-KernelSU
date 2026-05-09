@@ -20,7 +20,7 @@ src/module/
 ├─ bin/
 │  └─ xray                    # Xray-core Android arm64 二进制
 ├─ config/
-│  ├─ module.conf             # 模块级配置（AUTO_START、GMS_FIX）
+│  ├─ module.conf             # 模块级配置（AUTO_START）
 │  └─ xray/
 │     ├─ config.json          # Xray 主配置（TUN 入站）
 │     ├─ geoip.dat
@@ -31,8 +31,7 @@ src/module/
 │  │  └─ service.sh           # 服务启停核心逻辑
 │  └─ utils/
 │     ├─ common.sh            # 日志、路径等公共函数
-│     ├─ config.sh            # 配置读写工具
-│     └─ gms_fix.sh           # GMS 修复
+│     └─ config.sh            # 配置读写工具
 ├─ logs/                       # 运行时日志（自动生成）
 ├─ action.sh                   # 模块管理器"操作"按钮脚本
 ├─ customize.sh                # 安装/升级脚本
