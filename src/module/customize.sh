@@ -11,10 +11,6 @@ readonly MODULE_ID="netproxy"
 readonly LIVE_DIR="/data/adb/modules/$MODULE_ID"
 readonly CONFIG_DIR="$LIVE_DIR/config"
 readonly BACKUP_DIR="$TMPDIR/netproxy_backup"
-readonly LEGACY_CORE_NAME="sing""-box"
-readonly LEGACY_CONFIG_DIR="sing""box"
-readonly LEGACY_SUB_LOG="sub""scription.log"
-readonly LEGACY_WEB_DIR="web""root"
 
 # 全局状态: 代理服务是否在运行
 PROXY_WAS_RUNNING=false
@@ -161,7 +157,7 @@ stop_proxy_if_running() {
     return 0
   fi
 
-  if pidof -s "$LIVE_DIR/bin/xray" > /dev/null 2>&1 || pidof -s "$LIVE_DIR/bin/$LEGACY_CORE_NAME" > /dev/null 2>&1; then
+  if pidof -s "$LIVE_DIR/bin/xray" > /dev/null 2>&1; then
     PROXY_WAS_RUNNING=true
     print_step "检测到代理服务正在运行，停止服务..."
     sh "$LIVE_DIR/scripts/core/service.sh" stop > /dev/null 2>&1
@@ -209,10 +205,26 @@ sync_to_live() {
   fi
 
   print_step "清理旧核心残留..."
-  rm -rf "$LIVE_DIR/config/$LEGACY_CONFIG_DIR" \
-         "$LIVE_DIR/$LEGACY_WEB_DIR" \
-         "$LIVE_DIR/logs/$LEGACY_CORE_NAME.log" \
-         "$LIVE_DIR/logs/$LEGACY_SUB_LOG" 2> /dev/null
+  if [ -d "$LIVE_DIR/config" ]; then
+    find "$LIVE_DIR/config" -mindepth 1 -maxdepth 1 \
+      ! -name "module.conf" \
+      ! -name "tproxy" \
+      ! -name "xray" \
+      -exec rm -rf {} + 2> /dev/null
+  fi
+  if [ -d "$LIVE_DIR/logs" ]; then
+    find "$LIVE_DIR/logs" -mindepth 1 -maxdepth 1 \
+      ! -name "service.log" \
+      ! -name "xray.log" \
+      -exec rm -rf {} + 2> /dev/null
+  fi
+  find "$LIVE_DIR" -mindepth 1 -maxdepth 1 -type d \
+    ! -name "bin" \
+    ! -name "config" \
+    ! -name "logs" \
+    ! -name "scripts" \
+    ! -name "system" \
+    -exec rm -rf {} + 2> /dev/null
   print_ok "旧核心残留已清理"
 
   return 0
