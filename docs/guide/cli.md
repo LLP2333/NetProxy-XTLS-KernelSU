@@ -12,6 +12,8 @@ NetProxy CLI 路径固定为：
 su -c /data/adb/modules/netproxy/scripts/cli help
 ```
 
+日常开关服务可以不用 CLI。模块默认开机自启；手动开关可在 KernelSU / Magisk / APatch 的模块页面点击 NetProxy 的“操作”按钮。
+
 ## 命令分组
 
 ```text

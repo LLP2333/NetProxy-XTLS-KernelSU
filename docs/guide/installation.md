@@ -14,12 +14,13 @@
 2. 在 Magisk、KernelSU 或 APatch 中刷入模块。
 3. 重启设备。
 4. 编辑 `/data/adb/modules/netproxy/config/xray/config.json`。
-5. 执行配置校验并启动服务。
+5. 执行配置校验。
 
 ```sh
 su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-su -c '/data/adb/modules/netproxy/scripts/cli service start'
 ```
+
+配置通过后可以重启手机让模块自动启动，也可以在模块管理器中点击 NetProxy 的“操作”按钮手动启动。
 
 ## 安装后检查
 

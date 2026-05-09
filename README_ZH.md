@@ -57,12 +57,13 @@ src/module/
 }
 ```
 
-6. 校验并启动：
+6. 校验配置：
 
 ```sh
 su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-su -c '/data/adb/modules/netproxy/scripts/cli service start'
 ```
+
+之后可以直接重启手机，模块默认 `AUTO_START=1`，开机会自动启动。需要手动开关时，打开 KernelSU / Magisk / APatch 的模块页面，点击 NetProxy 的“操作”按钮即可。
 
 ## 重要默认值
 
@@ -77,6 +78,8 @@ su -c '/data/adb/modules/netproxy/scripts/cli service start'
 默认配置里的 `proxy` 出站暂时是 `freedom`，目的是让模块在没有真实服务器配置时也能启动。真正走代理前，需要把这个出站替换成你的节点配置，并保留 tag 名称 `proxy`。
 
 ## CLI
+
+日常启动和停止不必记 CLI。模块管理器里的“操作”按钮会在未运行时启动服务、运行时停止服务。
 
 ```sh
 su -c '/data/adb/modules/netproxy/scripts/cli service status'

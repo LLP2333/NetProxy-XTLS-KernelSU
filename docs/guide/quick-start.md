@@ -53,9 +53,9 @@ su -c '/data/adb/modules/netproxy/scripts/cli xray test'
 
 ## 4. 启动服务
 
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service start'
-```
+最简单的方式是重启手机。默认 `AUTO_START=1`，模块会在开机后自动启动。
+
+如果不想重启，打开 KernelSU / Magisk / APatch 的模块页面，点击 NetProxy 的“操作”按钮。未运行时会启动，运行时会停止。
 
 查看状态：
 
