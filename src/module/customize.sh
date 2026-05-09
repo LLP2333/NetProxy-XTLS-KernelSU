@@ -11,8 +11,10 @@ readonly MODULE_ID="netproxy"
 readonly LIVE_DIR="/data/adb/modules/$MODULE_ID"
 readonly CONFIG_DIR="$LIVE_DIR/config"
 readonly BACKUP_DIR="$TMPDIR/netproxy_backup"
-readonly LEGACY_CORE_NAME="x""ray"
-readonly LEGACY_WEB_DIR_NAME="web""root"
+readonly LEGACY_CORE_NAME="sing""-box"
+readonly LEGACY_CONFIG_DIR="sing""box"
+readonly LEGACY_SUB_LOG="sub""scription.log"
+readonly LEGACY_WEB_DIR="web""root"
 
 # 全局状态: 代理服务是否在运行
 PROXY_WAS_RUNNING=false
@@ -21,21 +23,18 @@ PROXY_WAS_RUNNING=false
 readonly PRESERVE_CONFIGS="
     module.conf
     tproxy/
-    singbox/
+    xray/
 "
 
 # 需要设置可执行权限的文件
 readonly EXECUTABLE_FILES="
-    bin/sing-box
-    bin/proxylink
+    bin/xray
     bin/IPSET-LKM/ko-loader
     bin/IPSET-LKM/ipset
     action.sh
     scripts/cli
     scripts/core/service.sh
-    scripts/core/switch.sh
     scripts/network/tproxy.sh
-    scripts/core/subscription.sh
     scripts/utils/ipset.sh
     scripts/utils/gms_fix.sh
 "
@@ -162,7 +161,7 @@ stop_proxy_if_running() {
     return 0
   fi
 
-  if pidof -s "$LIVE_DIR/bin/sing-box" > /dev/null 2>&1 || pidof -s "$LIVE_DIR/bin/$LEGACY_CORE_NAME" > /dev/null 2>&1; then
+  if pidof -s "$LIVE_DIR/bin/xray" > /dev/null 2>&1 || pidof -s "$LIVE_DIR/bin/$LEGACY_CORE_NAME" > /dev/null 2>&1; then
     PROXY_WAS_RUNNING=true
     print_step "检测到代理服务正在运行，停止服务..."
     sh "$LIVE_DIR/scripts/core/service.sh" stop > /dev/null 2>&1
@@ -208,6 +207,13 @@ sync_to_live() {
     cp -rn "$MODPATH/config/"* "$LIVE_DIR/config/" 2> /dev/null
     print_ok "配置目录已增量更新"
   fi
+
+  print_step "清理旧核心残留..."
+  rm -rf "$LIVE_DIR/config/$LEGACY_CONFIG_DIR" \
+         "$LIVE_DIR/$LEGACY_WEB_DIR" \
+         "$LIVE_DIR/logs/$LEGACY_CORE_NAME.log" \
+         "$LIVE_DIR/logs/$LEGACY_SUB_LOG" 2> /dev/null
+  print_ok "旧核心残留已清理"
 
   return 0
 }
@@ -389,7 +395,7 @@ cleanup() {
 # 主流程
 ################################################################################
 
-print_title "NetProxy - sing-box 透明代理"
+print_title "NetProxy - Xray 透明代理"
 ui_print "  版本: $(grep_prop version "$TMPDIR/module.prop" 2> /dev/null || echo "未知")"
 
 # 解压 module.prop 读取版本

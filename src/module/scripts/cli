@@ -8,34 +8,20 @@ readonly MODDIR="$(cd "$(dirname "$0")/.." && pwd)"
 readonly SCRIPTS_DIR="$MODDIR/scripts"
 readonly CONFIG_DIR="$MODDIR/config"
 readonly MODULE_CONF="$CONFIG_DIR/module.conf"
+readonly XRAY_DIR="$CONFIG_DIR/xray"
+readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly TPROXY_DIR="$CONFIG_DIR/tproxy"
 readonly TPROXY_CONF="$TPROXY_DIR/tproxy.conf"
-readonly SINGBOX_DIR="$CONFIG_DIR/singbox"
-readonly SINGBOX_OUTBOUNDS_DIR="$SINGBOX_DIR/outbounds"
-readonly DEFAULT_NODES_DIR="$SINGBOX_OUTBOUNDS_DIR/default"
-readonly RUNTIME_DIR="$SINGBOX_DIR/runtime"
-readonly CLI_NODE_SCAN_FILE="$RUNTIME_DIR/cli_nodes.tsv"
 readonly LOG_DIR="$MODDIR/logs"
 readonly SERVICE_LOG="$LOG_DIR/service.log"
-readonly CORE_LOG="$LOG_DIR/sing-box.log"
-readonly SUB_LOG="$LOG_DIR/subscription.log"
+readonly XRAY_LOG="$LOG_DIR/xray.log"
 
-readonly SING_BOX_BIN="$MODDIR/bin/sing-box"
-readonly PROXYLINK_BIN="$MODDIR/bin/proxylink"
+readonly XRAY_BIN="$MODDIR/bin/xray"
 readonly SERVICE_SCRIPT="$SCRIPTS_DIR/core/service.sh"
-readonly SWITCH_SCRIPT="$SCRIPTS_DIR/core/switch.sh"
-readonly SUB_SCRIPT="$SCRIPTS_DIR/core/subscription.sh"
 readonly TPROXY_SCRIPT="$SCRIPTS_DIR/network/tproxy.sh"
-
-readonly CLASH_API="127.0.0.1:9999"
-readonly CLASH_SECRET="singbox"
-readonly SELECTOR_GROUP="Proxy"
-readonly DELAY_URL="https://www.gstatic.com/generate_204"
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
-. "$MODDIR/scripts/utils/api.sh"
-. "$MODDIR/scripts/utils/nodes.sh"
 
 if [ -t 1 ]; then
   readonly RED="$(printf '\033[0;31m')"
@@ -75,40 +61,35 @@ section() {
 # 基础辅助
 #######################################
 is_running() {
-  [ -n "$(get_pid "$SING_BOX_BIN")" ]
+  [ -n "$(get_pid "$XRAY_BIN")" ]
 }
 
 ensure_cli_dirs() {
   ensure_dir "$LOG_DIR" "无法创建日志目录: $LOG_DIR"
-  ensure_dir "$DEFAULT_NODES_DIR" "无法创建默认节点目录: $DEFAULT_NODES_DIR"
-  ensure_dir "$RUNTIME_DIR" "无法创建运行时目录: $RUNTIME_DIR"
+  ensure_dir "$XRAY_DIR" "无法创建 Xray 配置目录: $XRAY_DIR"
 }
 
-prepare_node_scan() {
-  local current_config
+read_xray_config() {
+  local config
 
-  ensure_cli_dirs
-  current_config="$(read_conf "$MODULE_CONF" "CURRENT_CONFIG" "")"
-  scan_all_nodes "$SINGBOX_OUTBOUNDS_DIR" "$current_config" "$CLI_NODE_SCAN_FILE"
+  config="$(read_conf "$MODULE_CONF" "XRAY_CONFIG" "$DEFAULT_XRAY_CONFIG")"
+  [ -n "$config" ] || config="$DEFAULT_XRAY_CONFIG"
+  printf "%s" "$config"
 }
 
-print_node_line() {
-  local path="$1"
-  local name="$2"
-  local tag="$3"
-  local source="$4"
-  local is_current="$5"
-  local mark=" "
-
-  [ "$is_current" = "1" ] && mark="*"
-
-  if [ -n "$tag" ]; then
-    printf "  %s %-24s %s\n" "$mark" "$name" "$tag"
+reload_tproxy_if_running() {
+  if is_running; then
+    info "正在重载透明代理规则..."
+    sh "$TPROXY_SCRIPT" restart -d "$TPROXY_DIR" > /dev/null 2>&1 || die_cli "透明代理规则重载失败"
+    info "透明代理规则已重载"
   else
-    printf "  %s %s\n" "$mark" "$name"
+    info "服务未运行，配置将在下次启动时生效"
   fi
 }
 
+#######################################
+# help
+#######################################
 show_service_help() {
   cat << EOF
 用法:
@@ -116,53 +97,18 @@ show_service_help() {
   cli service start                   启动服务
   cli service stop                    停止服务
   cli service restart                 重启服务
-  cli service logs [service|core|sub] [行数]
+  cli service logs [service|xray] [行数]
                                       查看日志
 EOF
 }
 
-show_node_help() {
+show_xray_help() {
   cat << EOF
 用法:
-  cli node list                       列出全部节点
-  cli node current                    查看当前节点
-  cli node use <名称|标签|路径>       切换节点
-  cli node add <节点链接>             添加单个节点
-  cli node import <文件>              导入节点文件或 Clash YAML
-  cli node export <节点文件>          将 sing-box 节点转为链接
-  cli node show <名称|标签|路径>      查看节点配置
-  cli node remove <名称|标签|路径>    删除节点
-  cli node delay [名称|标签|all]      测试节点延迟
-EOF
-}
-
-show_mode_help() {
-  cat << EOF
-用法:
-  cli mode                            查看当前模式
-  cli mode <rule|global|direct>       切换出站模式
-EOF
-}
-
-show_sub_help() {
-  cat << EOF
-用法:
-  cli sub list                        列出订阅
-  cli sub add <名称> <链接>           添加订阅
-  cli sub update <名称>               更新指定订阅
-  cli sub update-all                  更新全部订阅
-  cli sub remove <名称>               删除订阅
-EOF
-}
-
-show_api_help() {
-  cat << EOF
-用法:
-  cli api groups                      查看代理组
-  cli api conns                       查看连接
-  cli api close <连接ID>              关闭指定连接
-  cli api close-all                   关闭全部连接
-  cli api ui                          查看控制器与面板地址
+  cli xray config                     查看当前 Xray 配置路径
+  cli xray show                       输出当前 Xray 配置内容
+  cli xray test                       使用 Xray 校验当前配置
+  cli xray version                    查看 Xray 版本
 EOF
 }
 
@@ -192,10 +138,10 @@ EOF
 # service 命令
 #######################################
 cmd_service_status() {
-  local pid current mode version api_mode tcp_port udp_port dns_port
+  local pid config version tcp_port udp_port dns_port proxy_mode routing_mark
 
   section "服务状态"
-  pid="$(get_pid "$SING_BOX_BIN")"
+  pid="$(get_pid "$XRAY_BIN")"
 
   if [ -n "$pid" ]; then
     printf "运行状态: %s运行中%s\n" "$GREEN" "$NC"
@@ -205,23 +151,20 @@ cmd_service_status() {
     printf "运行状态: %s未运行%s\n" "$RED" "$NC"
   fi
 
-  current="$(read_conf "$MODULE_CONF" "CURRENT_CONFIG" "")"
-  mode="$(read_conf "$MODULE_CONF" "OUTBOUND_MODE" "rule")"
+  config="$(read_xray_config)"
   tcp_port="$(read_conf "$TPROXY_CONF" "PROXY_TCP_PORT" "-")"
   udp_port="$(read_conf "$TPROXY_CONF" "PROXY_UDP_PORT" "-")"
   dns_port="$(read_conf "$TPROXY_CONF" "DNS_PORT" "-")"
+  proxy_mode="$(read_conf "$TPROXY_CONF" "PROXY_MODE" "1")"
+  routing_mark="$(read_conf "$TPROXY_CONF" "ROUTING_MARK" "2")"
 
-  [ -n "$current" ] && printf "当前节点: %s\n" "$(basename "$current")"
-  printf "出站模式: %s\n" "$mode"
+  printf "Xray 配置: %s\n" "$config"
   printf "透明代理端口: TCP=%s UDP=%s DNS=%s\n" "$tcp_port" "$udp_port" "$dns_port"
+  printf "透明代理模式: %s\n" "$proxy_mode"
+  printf "Xray 出站标记: %s\n" "$routing_mark"
 
-  if [ -n "$pid" ]; then
-    api_mode="$(api_get_mode 2> /dev/null || true)"
-    [ -n "$api_mode" ] && printf "运行模式: %s\n" "$api_mode"
-  fi
-
-  if [ -x "$SING_BOX_BIN" ]; then
-    version="$("$SING_BOX_BIN" version 2> /dev/null | head -1 || true)"
+  if [ -x "$XRAY_BIN" ]; then
+    version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
     [ -n "$version" ] && printf "内核版本: %s\n" "$version"
   fi
 }
@@ -251,8 +194,7 @@ cmd_service_logs() {
 
   case "$target" in
     service) file="$SERVICE_LOG" ;;
-    core | sing-box | singbox) file="$CORE_LOG" ;;
-    sub | subscription) file="$SUB_LOG" ;;
+    core | xray) file="$XRAY_LOG" ;;
     *) die_cli "未知日志类型: $target" ;;
   esac
 
@@ -276,323 +218,55 @@ cmd_service() {
 }
 
 #######################################
-# node 命令
+# xray 命令
 #######################################
-cmd_node_list() {
-  local path name tag source is_current current_source="" count=0
-
-  prepare_node_scan
-
-  while IFS="$NODE_RECORD_DELIM" read -r path name tag source is_current; do
-    if [ "$source" != "$current_source" ]; then
-      section "$source"
-      current_source="$source"
-    fi
-    print_node_line "$path" "$name" "$tag" "$source" "$is_current"
-    count=$((count + 1))
-  done < "$CLI_NODE_SCAN_FILE"
-
-  [ "$count" -gt 0 ] || printf "暂无节点\n"
+cmd_xray_config() {
+  read_xray_config
+  printf "\n"
 }
 
-cmd_node_current() {
-  local current tag
+cmd_xray_show() {
+  local config
 
-  current="$(read_conf "$MODULE_CONF" "CURRENT_CONFIG" "")"
-  if [ -z "$current" ]; then
-    printf "当前未设置节点\n"
-    return 0
-  fi
-
-  tag="$(detect_outbound_tag "$current" || true)"
-
-  section "当前节点"
-  printf "文件名: %s\n" "$(basename "$current")"
-  [ -n "$tag" ] && printf "标签: %s\n" "$tag"
-  printf "路径: %s\n" "$current"
+  config="$(read_xray_config)"
+  [ -f "$config" ] || die_cli "Xray 配置文件不存在: $config"
+  cat "$config"
 }
 
-cmd_node_use() {
-  local query="${1:-}"
-  local node
+cmd_xray_test() {
+  local config
 
-  [ -n "$query" ] || die_cli "用法: cli node use <名称|标签|路径>"
-  prepare_node_scan
-  node="$(resolve_node_from_scan "$CLI_NODE_SCAN_FILE" "$query")"
-  info "正在切换节点: $(basename "$node")"
-  sh "$SWITCH_SCRIPT" config "$node"
+  config="$(read_xray_config)"
+  [ -x "$XRAY_BIN" ] || die_cli "Xray 二进制不可执行: $XRAY_BIN"
+  [ -f "$config" ] || die_cli "Xray 配置文件不存在: $config"
+
+  export XRAY_LOCATION_ASSET="$XRAY_DIR"
+  export XRAY_LOCATION_CONFIG="$XRAY_DIR"
+  "$XRAY_BIN" run -test -config "$config"
 }
 
-cmd_node_add() {
-  local link="${1:-}"
-
-  [ -n "$link" ] || die_cli "用法: cli node add <节点链接>"
-  info "正在导入节点..."
-  sh "$SUB_SCRIPT" parse "$link" "$DEFAULT_NODES_DIR"
-  info "节点导入完成"
+cmd_xray_version() {
+  [ -x "$XRAY_BIN" ] || die_cli "Xray 二进制不可执行: $XRAY_BIN"
+  "$XRAY_BIN" version
 }
 
-cmd_node_import() {
-  local file="${1:-}"
-
-  [ -n "$file" ] || die_cli "用法: cli node import <文件>"
-  [ -f "$file" ] || die_cli "文件不存在: $file"
-  info "正在导入文件..."
-  sh "$SUB_SCRIPT" file "$file" "$DEFAULT_NODES_DIR"
-  info "文件导入完成"
-}
-
-cmd_node_export() {
-  local query="${1:-}"
-  local node
-
-  [ -n "$query" ] || die_cli "用法: cli node export <节点文件>"
-  prepare_node_scan
-  if [ -f "$query" ]; then
-    node="$query"
-  else
-    node="$(resolve_node_from_scan "$CLI_NODE_SCAN_FILE" "$query")"
-  fi
-  sh "$SUB_SCRIPT" convert "$node"
-}
-
-cmd_node_show() {
-  local query="${1:-}"
-  local node
-
-  [ -n "$query" ] || die_cli "用法: cli node show <名称|标签|路径>"
-  prepare_node_scan
-  node="$(resolve_node_from_scan "$CLI_NODE_SCAN_FILE" "$query")"
-  printf "文件: %s\n" "$node"
-  printf -- "--------------------------------\n"
-  cat "$node"
-}
-
-cmd_node_remove() {
-  local query="${1:-}"
-  local node current
-
-  [ -n "$query" ] || die_cli "用法: cli node remove <名称|标签|路径>"
-  prepare_node_scan
-  node="$(resolve_node_from_scan "$CLI_NODE_SCAN_FILE" "$query")"
-  current="$(read_conf "$MODULE_CONF" "CURRENT_CONFIG" "")"
-
-  [ "$node" != "$current" ] || die_cli "不能删除当前正在使用的节点"
-  rm -f "$node"
-  info "已删除节点: $(basename "$node")"
-}
-
-delay_one() {
-  local tag="$1"
-  local result delay
-
-  result="$(api_test_delay "$tag" "$(api_delay_url)" 5000 2> /dev/null || true)"
-  delay="$(printf "%s" "$result" | sed -n 's/.*"delay"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')"
-
-  if [ -n "$delay" ]; then
-    printf "%-24s %s ms\n" "$tag" "$delay"
-  else
-    printf "%-24s %s\n" "$tag" "失败"
-  fi
-}
-
-cmd_node_delay() {
-  local query="${1:-}"
-  local node tag path name source is_current
-
-  if [ "$query" = "all" ]; then
-    prepare_node_scan
-    while IFS="$NODE_RECORD_DELIM" read -r path name tag source is_current; do
-      [ -n "$tag" ] || continue
-      delay_one "$tag"
-    done < "$CLI_NODE_SCAN_FILE"
-    return 0
-  fi
-
-  if [ -n "$query" ]; then
-    prepare_node_scan
-    if node="$(resolve_node_from_scan "$CLI_NODE_SCAN_FILE" "$query" 2> /dev/null)"; then
-      tag="$(detect_outbound_tag "$node" || true)"
-    else
-      tag="$query"
-    fi
-  else
-    node="$(read_conf "$MODULE_CONF" "CURRENT_CONFIG" "")"
-    [ -n "$node" ] || die_cli "当前未设置节点"
-    tag="$(detect_outbound_tag "$node" || true)"
-  fi
-
-  [ -n "$tag" ] || die_cli "无法读取节点标签"
-  delay_one "$tag"
-}
-
-cmd_node() {
-  local subcmd="${1:-list}"
+cmd_xray() {
+  local subcmd="${1:-config}"
   shift 2> /dev/null || true
 
   case "$subcmd" in
-    list) cmd_node_list "$@" ;;
-    current) cmd_node_current "$@" ;;
-    use) cmd_node_use "$@" ;;
-    add) cmd_node_add "$@" ;;
-    import) cmd_node_import "$@" ;;
-    export) cmd_node_export "$@" ;;
-    show) cmd_node_show "$@" ;;
-    remove | rm) cmd_node_remove "$@" ;;
-    delay) cmd_node_delay "$@" ;;
-    help | -h | --help) show_node_help ;;
-    *) die_cli "用法错误，使用 cli node help 查看帮助" ;;
-  esac
-}
-
-#######################################
-# mode 命令
-#######################################
-cmd_mode() {
-  local mode="${1:-}"
-  local current api_mode
-
-  if [ -z "$mode" ]; then
-    current="$(read_conf "$MODULE_CONF" "OUTBOUND_MODE" "rule")"
-    printf "持久化模式: %s\n" "$current"
-    if is_running; then
-      api_mode="$(api_get_mode 2> /dev/null || true)"
-      [ -n "$api_mode" ] && printf "运行模式: %s\n" "$api_mode"
-    fi
-    return 0
-  fi
-
-  case "$mode" in
-    rule | global | direct) ;;
-    help | -h | --help)
-      show_mode_help
-      return 0
-      ;;
-    *)
-      die_cli "未知模式: $mode"
-      ;;
-  esac
-
-  sh "$SWITCH_SCRIPT" mode "$mode"
-}
-
-#######################################
-# sub 命令
-#######################################
-cmd_sub() {
-  local subcmd="${1:-list}"
-  shift 2> /dev/null || true
-
-  case "$subcmd" in
-    list) sh "$SUB_SCRIPT" list ;;
-    add) sh "$SUB_SCRIPT" add "${1:-}" "${2:-}" ;;
-    update) sh "$SUB_SCRIPT" update "${1:-}" ;;
-    update-all) sh "$SUB_SCRIPT" update-all ;;
-    remove | rm) sh "$SUB_SCRIPT" remove "${1:-}" ;;
-    help | -h | --help) show_sub_help ;;
-    *) die_cli "用法错误，使用 cli sub help 查看帮助" ;;
-  esac
-}
-
-#######################################
-# api 命令
-#######################################
-cmd_api_groups() {
-  local json now item has_output=0
-
-  json="$(api_get_proxies 2> /dev/null)" || die_cli "控制接口不可用，请确认服务正在运行"
-  now="$(api_selector_current "$json" "$(api_selector_group)" || true)"
-
-  section "代理组"
-  [ -n "$now" ] && printf "%s: %s\n" "$(api_selector_group)" "$now"
-
-  while IFS= read -r item; do
-    [ -n "$item" ] || continue
-    [ "$item" = "$now" ] && continue
-    if [ "$has_output" -eq 0 ]; then
-      printf "可选节点:\n"
-      has_output=1
-    fi
-    printf "  - %s\n" "$item"
-  done << EOF
-$(api_selector_options "$json" "$(api_selector_group)" 2> /dev/null || true)
-EOF
-
-  [ "$has_output" -eq 1 ] || printf "暂无可选节点信息\n"
-}
-
-cmd_api_conns() {
-  local json total ids id count=0
-
-  json="$(api_get_connections 2> /dev/null)" || die_cli "控制接口不可用，请确认服务正在运行"
-  total="$(printf "%s" "$json" | sed -n 's/.*"downloadTotal"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')"
-  [ -n "$total" ] && printf "下载总量: %s bytes\n" "$total"
-
-  ids="$(printf "%s" "$json" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)"
-  if [ -n "$ids" ]; then
-    printf "连接列表:\n"
-    for id in $ids; do
-      printf "  - %s\n" "$id"
-      count=$((count + 1))
-      [ "$count" -ge 20 ] && break
-    done
-  else
-    printf "%s\n" "$json"
-  fi
-}
-
-cmd_api_close() {
-  local id="${1:-}"
-
-  [ -n "$id" ] || die_cli "用法: cli api close <连接ID>"
-  api_close_connection "$id" || die_cli "关闭连接失败"
-  info "连接已关闭: $id"
-}
-
-cmd_api_close_all() {
-  api_close_all_connections || die_cli "关闭全部连接失败"
-  info "全部连接已关闭"
-}
-
-cmd_api_ui() {
-  local ip
-
-  ip="$(detect_primary_ipv4)"
-  [ -n "$ip" ] || ip="<设备IP>"
-
-  printf "控制地址: http://%s:9999\n" "$ip"
-  printf "面板地址: http://%s:9999/ui\n" "$ip"
-  printf "密钥: %s\n" "$(api_secret)"
-}
-
-cmd_api() {
-  local subcmd="${1:-groups}"
-  shift 2> /dev/null || true
-
-  case "$subcmd" in
-    groups) cmd_api_groups "$@" ;;
-    conns) cmd_api_conns "$@" ;;
-    close) cmd_api_close "$@" ;;
-    close-all) cmd_api_close_all "$@" ;;
-    ui) cmd_api_ui "$@" ;;
-    help | -h | --help) show_api_help ;;
-    *) die_cli "用法错误，使用 cli api help 查看帮助" ;;
+    config | path) cmd_xray_config "$@" ;;
+    show | cat) cmd_xray_show "$@" ;;
+    test) cmd_xray_test "$@" ;;
+    version | -v | --version) cmd_xray_version "$@" ;;
+    help | -h | --help) show_xray_help ;;
+    *) die_cli "用法错误，使用 cli xray help 查看帮助" ;;
   esac
 }
 
 #######################################
 # app 命令
 #######################################
-reload_tproxy_if_running() {
-  if is_running; then
-    info "正在重载透明代理规则..."
-    sh "$TPROXY_SCRIPT" restart -d "$TPROXY_DIR" > /dev/null 2>&1 || die_cli "透明代理规则重载失败"
-    info "透明代理规则已重载"
-  else
-    info "服务未运行，配置将在下次启动时生效"
-  fi
-}
-
 cmd_app_list() {
   printf "分应用代理: %s\n" "$(read_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "0")"
   printf "应用模式: %s\n" "$(read_conf "$TPROXY_CONF" "APP_PROXY_MODE" "blacklist")"
@@ -688,7 +362,8 @@ cmd_tproxy_status() {
   printf "TCP 端口: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_TCP_PORT" "-")"
   printf "UDP 端口: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_UDP_PORT" "-")"
   printf "DNS 端口: %s\n" "$(read_conf "$TPROXY_CONF" "DNS_PORT" "-")"
-  printf "代理模式: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_MODE" "0")"
+  printf "代理模式: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_MODE" "1")"
+  printf "出站标记: %s\n" "$(read_conf "$TPROXY_CONF" "ROUTING_MARK" "2")"
   printf "分应用代理: %s\n" "$(read_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "0")"
   printf "阻断 QUIC: %s\n" "$(read_conf "$TPROXY_CONF" "BLOCK_QUIC" "0")"
   printf "绕过中国 IP: %s\n" "$(read_conf "$TPROXY_CONF" "BYPASS_CN_IP" "0")"
@@ -750,37 +425,14 @@ NetProxy CLI
   cli service start                   启动服务
   cli service stop                    停止服务
   cli service restart                 重启服务
-  cli service logs [service|core|sub] [行数]
+  cli service logs [service|xray] [行数]
                                       查看日志
 
-节点:
-  cli node list                       列出全部节点
-  cli node current                    查看当前节点
-  cli node use <名称|标签|路径>       切换节点
-  cli node add <节点链接>             添加单个节点
-  cli node import <文件>              导入节点文件或 Clash YAML
-  cli node export <节点文件>          将 sing-box 节点转为链接
-  cli node show <名称|标签|路径>      查看节点配置
-  cli node remove <名称|标签|路径>    删除节点
-  cli node delay [名称|标签|all]      测试节点延迟
-
-模式:
-  cli mode                            查看当前模式
-  cli mode <rule|global|direct>       切换出站模式
-
-订阅:
-  cli sub list                        列出订阅
-  cli sub add <名称> <链接>           添加订阅
-  cli sub update <名称>               更新指定订阅
-  cli sub update-all                  更新全部订阅
-  cli sub remove <名称>               删除订阅
-
-控制接口:
-  cli api groups                      查看代理组
-  cli api conns                       查看连接
-  cli api close <连接ID>              关闭指定连接
-  cli api close-all                   关闭全部连接
-  cli api ui                          查看控制器与面板地址
+Xray:
+  cli xray config                     查看当前配置路径
+  cli xray show                       输出当前配置内容
+  cli xray test                       校验当前配置
+  cli xray version                    查看 Xray 版本
 
 分应用代理:
   cli app list                        查看分应用代理配置
@@ -809,10 +461,7 @@ main() {
 
   case "$group" in
     service) cmd_service "$@" ;;
-    node) cmd_node "$@" ;;
-    mode) cmd_mode "$@" ;;
-    sub) cmd_sub "$@" ;;
-    api) cmd_api "$@" ;;
+    xray | core) cmd_xray "$@" ;;
     app) cmd_app "$@" ;;
     tproxy) cmd_tproxy "$@" ;;
     help | -h | --help) show_help ;;

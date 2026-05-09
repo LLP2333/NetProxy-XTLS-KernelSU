@@ -1,114 +1,97 @@
 #!/system/bin/sh
-# NetProxy sing-box 服务管理脚本
+# NetProxy Xray 服务管理脚本
 # 用法: service.sh {start|stop|restart|status}
 
 set -u
 
 readonly MODDIR="$(cd "$(dirname "$0")/../.." && pwd)"
 readonly LOG_FILE="$MODDIR/logs/service.log"
-readonly SING_BOX_BIN="$MODDIR/bin/sing-box"
+readonly XRAY_BIN="$MODDIR/bin/xray"
 readonly MODULE_CONF="$MODDIR/config/module.conf"
 readonly TPROXY_CONF_DIR="$MODDIR/config/tproxy"
-readonly SINGBOX_LOG_FILE="$MODDIR/logs/sing-box.log"
-readonly SINGBOX_DIR="$MODDIR/config/singbox"
-readonly CONFDIR="$SINGBOX_DIR/confdir"
-readonly RUNTIME_DIR="$SINGBOX_DIR/runtime"
-readonly SWITCH_SCRIPT="$MODDIR/scripts/core/switch.sh"
+readonly XRAY_DIR="$MODDIR/config/xray"
+readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
+readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
 readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
 readonly KILL_TIMEOUT=5
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
-. "$MODDIR/scripts/utils/api.sh"
-. "$MODDIR/scripts/utils/nodes.sh"
-. "$MODDIR/scripts/core/runtime.sh"
 
 export PATH="$MODDIR/bin:$PATH"
 
 readonly BUSYBOX="$(detect_busybox)"
 
+XRAY_CONFIG="$DEFAULT_XRAY_CONFIG"
+
+#######################################
+# 加载服务配置
+#######################################
+load_service_config() {
+  XRAY_CONFIG="$(read_conf "$MODULE_CONF" "XRAY_CONFIG" "$DEFAULT_XRAY_CONFIG")"
+  [ -n "$XRAY_CONFIG" ] || XRAY_CONFIG="$DEFAULT_XRAY_CONFIG"
+}
+
 #######################################
 # 检查服务运行环境
 #######################################
 verify_environment() {
-  require_file "$SING_BOX_BIN" "sing-box 二进制不存在: $SING_BOX_BIN"
+  local mode="${1:-start}"
+
+  load_service_config
+
+  require_file "$XRAY_BIN" "Xray 二进制不存在: $XRAY_BIN"
   require_file "$MODULE_CONF" "模块配置文件不存在: $MODULE_CONF"
   require_file "$TPROXY_CONF_DIR/tproxy.conf" "透明代理配置文件不存在: $TPROXY_CONF_DIR/tproxy.conf"
-  require_dir "$SINGBOX_DIR" "sing-box 配置目录不存在: $SINGBOX_DIR"
-  require_dir "$CONFDIR" "通用配置目录不存在: $CONFDIR"
+  require_dir "$XRAY_DIR" "Xray 配置目录不存在: $XRAY_DIR"
+  if [ "$mode" = "start" ]; then
+    require_file "$XRAY_CONFIG" "Xray 配置文件不存在: $XRAY_CONFIG"
+  fi
 
   ensure_dir "$MODDIR/logs" "无法创建日志目录: $MODDIR/logs"
-  ensure_dir "$RUNTIME_DIR" "无法创建运行时目录: $RUNTIME_DIR"
-}
-
-#######################################
-# 清理运行时文件
-#######################################
-cleanup_runtime_files() {
-  rm -f "$RUNTIME_DIR/outbounds.json" 2> /dev/null || true
 }
 
 #######################################
 # 启动服务
 #######################################
 do_start() {
-  local pid runtime_outbounds new_pid
-  local node_path
+  local pid new_pid
 
-  log "INFO" "========== 开始启动 sing-box 服务 =========="
-  verify_environment
+  log "INFO" "========== 开始启动 Xray 服务 =========="
+  verify_environment start
 
-  pid="$(get_pid "$SING_BOX_BIN")"
+  pid="$(get_pid "$XRAY_BIN")"
   if [ -n "$pid" ]; then
-    log "WARN" "sing-box 已在运行中 (PID: $pid)"
+    log "WARN" "Xray 已在运行中 (PID: $pid)"
     return 0
   fi
 
-  initialize_runtime_context
-  scan_runtime_nodes "$CUR_OUTBOUND_DIR"
-  write_runtime_outbounds > /dev/null
-  runtime_outbounds="$RUNTIME_OUTBOUNDS_FILE"
+  log "INFO" "Xray 配置文件: $XRAY_CONFIG"
+  log "INFO" "Xray 资源目录: $XRAY_DIR"
+  log "INFO" "正在启动 Xray 进程..."
 
-  [ "$RUNTIME_NODE_COUNT" -gt 0 ] || die "当前节点目录没有可加载的节点配置: $CUR_OUTBOUND_DIR"
+  export XRAY_LOCATION_ASSET="$XRAY_DIR"
+  export XRAY_LOCATION_CONFIG="$XRAY_DIR"
 
-  log "INFO" "当前节点目录: $CUR_OUTBOUND_DIR"
-  log "INFO" "路由模式: $CUR_OUTBOUND_MODE"
-  log "INFO" "选择模式: $CUR_SELECTOR_MODE"
-  log "INFO" "已加载节点: $RUNTIME_NODE_COUNT，跳过无效节点: $RUNTIME_SKIPPED_COUNT"
-
-  # 构造最终启动参数
-  set -- run -C "$CONFDIR"
-  while IFS= read -r node_path; do
-    [ -n "$node_path" ] || continue
-    set -- "$@" -c "$node_path"
-  done << EOF
-$RUNTIME_NODE_PATHS
-EOF
-  set -- "$@" -c "$runtime_outbounds"
-
-  log "INFO" "正在启动 sing-box 进程..."
-  cd "$SINGBOX_DIR" || die "无法进入配置目录: $SINGBOX_DIR"
-  nohup "$BUSYBOX" setuidgid root:net_admin "$SING_BOX_BIN" "$@" > "$SINGBOX_LOG_FILE" 2>&1 &
+  cd "$XRAY_DIR" || die "无法进入 Xray 配置目录: $XRAY_DIR"
+  nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" > "$XRAY_LOG_FILE" 2>&1 &
 
   new_pid=$!
   sleep 1
 
   if kill -0 "$new_pid" 2> /dev/null; then
-    log "INFO" "sing-box 启动成功 (PID: $new_pid)"
+    log "INFO" "Xray 启动成功 (PID: $new_pid)"
   else
-    die "sing-box 启动失败，请检查日志: $SINGBOX_LOG_FILE"
-  fi
-
-  if api_wait_available 5 1; then
-    LOG_STDERR=0 SWITCH_ALLOW_RESTART=0 sh "$SWITCH_SCRIPT" mode "$CUR_OUTBOUND_MODE" || log "WARN" "运行模式同步失败"
-  else
-    log "WARN" "控制接口未就绪，本次未同步运行模式"
+    die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
   fi
 
   log "INFO" "正在加载透明代理规则..."
-  "$TPROXY_SCRIPT" start -d "$TPROXY_CONF_DIR" >> "$LOG_FILE" 2>&1 || die "透明代理规则加载失败"
+  if ! "$TPROXY_SCRIPT" start -d "$TPROXY_CONF_DIR" >> "$LOG_FILE" 2>&1; then
+    kill "$new_pid" 2> /dev/null || true
+    die "透明代理规则加载失败，已停止 Xray 进程"
+  fi
 
-  log "INFO" "========== sing-box 服务启动完成 =========="
+  log "INFO" "========== Xray 服务启动完成 =========="
 }
 
 #######################################
@@ -117,21 +100,20 @@ EOF
 do_stop() {
   local pid count
 
-  log "INFO" "========== 开始停止 sing-box 服务 =========="
-  verify_environment
+  log "INFO" "========== 开始停止 Xray 服务 =========="
+  verify_environment stop
 
   log "INFO" "正在清理透明代理规则..."
   "$TPROXY_SCRIPT" stop -d "$TPROXY_CONF_DIR" >> "$LOG_FILE" 2>&1 || true
 
-  pid="$(get_pid "$SING_BOX_BIN")"
+  pid="$(get_pid "$XRAY_BIN")"
   if [ -z "$pid" ]; then
-    log "INFO" "未发现运行中的 sing-box 进程"
-    cleanup_runtime_files
-    log "INFO" "========== sing-box 服务停止完成 =========="
+    log "INFO" "未发现运行中的 Xray 进程"
+    log "INFO" "========== Xray 服务停止完成 =========="
     return 0
   fi
 
-  log "INFO" "正在停止 sing-box 进程 (PID: $pid)..."
+  log "INFO" "正在停止 Xray 进程 (PID: $pid)..."
 
   if kill "$pid" 2> /dev/null; then
     count=0
@@ -146,16 +128,15 @@ do_stop() {
     fi
   fi
 
-  cleanup_runtime_files
-  log "INFO" "sing-box 进程已停止"
-  log "INFO" "========== sing-box 服务停止完成 =========="
+  log "INFO" "Xray 进程已停止"
+  log "INFO" "========== Xray 服务停止完成 =========="
 }
 
 #######################################
 # 重启服务
 #######################################
 do_restart() {
-  log "INFO" "========== 开始重启 sing-box 服务 =========="
+  log "INFO" "========== 开始重启 Xray 服务 =========="
   do_stop
   sleep 1
   do_start
@@ -165,19 +146,21 @@ do_restart() {
 # 查看状态
 #######################################
 do_status() {
-  local pid uptime
+  local pid uptime version
 
-  pid="$(get_pid "$SING_BOX_BIN")"
+  pid="$(get_pid "$XRAY_BIN")"
   if [ -n "$pid" ]; then
-    printf "sing-box 运行中 (PID: %s)\n" "$pid"
+    printf "Xray 运行中 (PID: %s)\n" "$pid"
     uptime="$(get_process_uptime "$pid")"
     if [ "$uptime" -gt 0 ]; then
       printf "运行时间: %s 秒\n" "$uptime"
     fi
+    version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
+    [ -n "$version" ] && printf "内核版本: %s\n" "$version"
     return 0
   fi
 
-  printf "sing-box 未运行\n"
+  printf "Xray 未运行\n"
   return 1
 }
 
@@ -189,9 +172,9 @@ show_usage() {
 用法: $(basename "$0") {start|stop|restart|status}
 
 命令:
-  start     启动 sing-box 服务
-  stop      停止 sing-box 服务
-  restart   重启 sing-box 服务
+  start     启动 Xray 服务
+  stop      停止 Xray 服务
+  restart   重启 Xray 服务
   status    查看服务状态
 EOF
 }
