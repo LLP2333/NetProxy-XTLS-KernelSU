@@ -1,6 +1,6 @@
 #!/system/bin/sh
-# NetProxy 模块操作脚本
-# 用于模块管理器中的操作按钮
+# NetProxy 模块操作按钮入口
+# 由模块管理器的操作按钮触发，自动切换服务状态（运行中→停止，未运行→启动）
 
 readonly MODDIR="${0%/*}"
 readonly SERVICE_SCRIPT="$MODDIR/scripts/core/service.sh"

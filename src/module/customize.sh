@@ -1,5 +1,15 @@
 #!/system/bin/sh
-# NetProxy Magisk 模块安装脚本
+# NetProxy 模块安装脚本
+# 由 Magisk/KernelSU/APatch 框架在刷入模块时调用
+#
+# 安装流程:
+#   1. backup_config      — 备份用户配置（升级时保留）
+#   2. extract_module     — 解压模块文件到 $MODPATH
+#   3. restore_config     — 将备份的配置恢复到新模块目录
+#   4. stop_proxy_if_running — 如果代理正在运行则先停止
+#   5. sync_to_live       — 将新文件同步到运行时目录，清理旧文件
+#   6. set_permissions    — 设置可执行权限
+#   7. restart_proxy_if_needed — 如果之前在运行则重新启动
 
 SKIPUNZIP=1
 
@@ -15,6 +25,7 @@ readonly MANIFEST="$TMPDIR/netproxy_manifest.txt"
 PROXY_WAS_RUNNING=false
 
 # 升级时保留的用户配置文件（相对于模块根目录）
+# 这些文件在升级安装时不会被新版本覆盖
 readonly PRESERVE_USER_FILES="
     config/module.conf
     config/xray/config.json
@@ -30,6 +41,7 @@ readonly EXECUTABLE_FILES="
 "
 
 # 运行时目录，不参与清单比对和同步（相对于模块根目录）
+# 这些目录下的文件由服务运行时产生，升级时不应删除
 readonly RUNTIME_DIRS="logs trash"
 
 ################################################################################
@@ -63,6 +75,7 @@ dir_not_empty() {
   [ -d "$1" ] && [ "$(ls -A "$1" 2> /dev/null)" ]
 }
 
+# 用于 sync_to_live()：跳过运行时目录中的文件
 is_runtime_path() {
   local rel="$1" d
   for d in $RUNTIME_DIRS; do
@@ -73,6 +86,7 @@ is_runtime_path() {
   return 1
 }
 
+# 用于 sync_to_live()：跳过用户配置文件（不覆盖）
 is_preserved_file() {
   local rel="$1" pf
   for pf in $PRESERVE_USER_FILES; do
@@ -81,6 +95,7 @@ is_preserved_file() {
   return 1
 }
 
+# 生成已解压文件的相对路径清单，供 sync_to_live() 做差量比对
 generate_manifest() {
   find "$MODPATH" -type f | while IFS= read -r f; do
     printf '%s\n' "${f#$MODPATH/}"
@@ -184,7 +199,8 @@ sync_to_live() {
     return 0
   fi
 
-  # ── 阶段 1: 将清单内的文件同步到运行时目录 ──
+  # ── 阶段 1/2: 将清单内的新文件复制到运行时目录 ──
+  # 跳过运行时目录（logs/trash）和用户配置文件
   print_step "更新模块文件..."
   local updated=0
   while IFS= read -r rel; do
@@ -204,7 +220,8 @@ sync_to_live() {
   done < "$MANIFEST"
   print_ok "已更新 $updated 个文件"
 
-  # ── 阶段 2: 将不在清单上的文件移至 trash ──
+  # ── 阶段 2/2: 将不在新清单中的旧文件移至 trash ──
+  # 确保旧版本残留文件不会干扰新版本运行
   print_step "清理旧版本文件..."
   local trash_dir="$LIVE_DIR/trash"
   local trashed=0

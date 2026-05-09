@@ -1,8 +1,16 @@
 #!/system/bin/sh
 # 通用辅助函数
+# 被 service.sh、customize.sh、action.sh 等脚本 source 引用
+# 依赖调用方预先设置 LOG_FILE 变量
 
 #######################################
 # 写入标准日志
+# 支持两种调用方式:
+#   log "消息"              → 默认 INFO 级别
+#   log "LEVEL" "消息"      → 指定级别
+# 输出目标:
+#   LOG_FILE 不为空时追加写入文件
+#   LOG_STDERR != 0 时同时输出到 stderr
 #######################################
 log() {
   local level="INFO"
@@ -31,6 +39,8 @@ die() {
 
 #######################################
 # 检测 busybox 路径
+# 按 KernelSU → APatch → Magisk 的优先级查找，
+# 都找不到时回退到 PATH 中的 busybox
 #######################################
 detect_busybox() {
   local path
@@ -91,6 +101,8 @@ json_escape() {
 
 #######################################
 # 获取指定进程的 PID
+# pidof -s 只返回单个 PID，适合守护进程查询；
+# 部分精简系统无 pidof，用 pgrep 作为 fallback
 #######################################
 get_pid() {
   local bin="$1"
@@ -100,7 +112,9 @@ get_pid() {
 }
 
 #######################################
-# 获取指定 PID 的运行时间
+# 获取指定 PID 的运行时间（秒）
+# 通过 /proc/<pid>/stat 第 22 个字段（starttime，
+# 单位为 clock ticks）与系统 uptime 做差计算
 #######################################
 get_process_uptime() {
   local pid="$1"
@@ -109,7 +123,9 @@ get_process_uptime() {
   [ -n "$pid" ] || { printf "0\n"; return 1; }
   [ -d "/proc/$pid" ] || { printf "0\n"; return 1; }
 
+  # $22 = starttime (clock ticks since boot)
   start_time="$(awk '{print $22}' "/proc/$pid/stat" 2> /dev/null || echo 0)"
+  # /proc/uptime 第一个字段为秒，乘 100 转换为 centiseconds 对齐
   now_ticks="$(awk '{print int($1 * 100)}' /proc/uptime 2> /dev/null || echo 0)"
 
   if [ "$start_time" -gt 0 ] && [ "$now_ticks" -gt 0 ]; then

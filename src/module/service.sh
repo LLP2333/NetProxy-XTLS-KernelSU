@@ -1,4 +1,7 @@
 #!/system/bin/sh
+# NetProxy 开机服务入口
+# 由模块框架（Magisk/KernelSU/APatch）在开机时自动执行
+# 等待系统启动完成后，根据配置决定是否自动启动代理服务
 set -e
 
 readonly MODDIR="${0%/*}"

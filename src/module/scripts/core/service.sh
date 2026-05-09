@@ -1,5 +1,6 @@
 #!/system/bin/sh
 # NetProxy Xray 服务管理脚本 (TProxy 模式)
+# 负责 Xray 进程的生命周期管理和透明代理规则的联动
 # 用法: service.sh {start|stop|restart|status}
 
 set -u
@@ -12,7 +13,11 @@ readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
 readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
+
+# SIGTERM 等待超时（秒），超时后升级为 SIGKILL
 readonly KILL_TIMEOUT=5
+# 启动后等待进程存活的检查次数（每次间隔 1 秒）
+readonly STARTUP_CHECK_COUNT=3
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -52,6 +57,23 @@ verify_environment() {
 }
 
 #######################################
+# 等待进程存活确认
+# 连续检查 $STARTUP_CHECK_COUNT 次（每次 1 秒），
+# 如果进程提前退出则认为启动失败
+#######################################
+wait_for_process() {
+  local pid="$1" check=0
+
+  while [ "$check" -lt "$STARTUP_CHECK_COUNT" ]; do
+    sleep 1
+    if ! kill -0 "$pid" 2> /dev/null; then
+      return 1
+    fi
+    check=$((check + 1))
+  done
+}
+
+#######################################
 # 启动服务
 #######################################
 do_start() {
@@ -78,14 +100,9 @@ do_start() {
 
   new_pid=$!
 
-  local wait_count=0
-  while [ "$wait_count" -lt 3 ]; do
-    sleep 1
-    if ! kill -0 "$new_pid" 2> /dev/null; then
-      die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
-    fi
-    wait_count=$((wait_count + 1))
-  done
+  if ! wait_for_process "$new_pid"; then
+    die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
+  fi
 
   log "INFO" "Xray 启动成功 (PID: $new_pid)"
 
@@ -100,6 +117,8 @@ do_start() {
 
 #######################################
 # 停止服务
+# 先清理 iptables 规则（即使 Xray 未运行也要清理，
+# 防止残留规则导致网络异常），再停止 Xray 进程
 #######################################
 do_stop() {
   local pid count
@@ -107,7 +126,6 @@ do_stop() {
   log "INFO" "========== 开始停止 Xray 服务 =========="
   verify_environment stop
 
-  # 无论 Xray 是否在运行，都清理 iptables 规则
   if [ -f "$TPROXY_SCRIPT" ]; then
     "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true
   fi
@@ -121,6 +139,7 @@ do_stop() {
 
   log "INFO" "正在停止 Xray 进程 (PID: $pid)..."
 
+  # 先发 SIGTERM 优雅退出，等待 KILL_TIMEOUT 秒
   if kill "$pid" 2> /dev/null; then
     count=0
     while kill -0 "$pid" 2> /dev/null && [ "$count" -lt "$KILL_TIMEOUT" ]; do
@@ -128,6 +147,7 @@ do_stop() {
       count=$((count + 1))
     done
 
+    # 超时未退出则强制终止
     if kill -0 "$pid" 2> /dev/null; then
       log "WARN" "进程未响应 SIGTERM，改用 SIGKILL"
       kill -9 "$pid" 2> /dev/null || true
