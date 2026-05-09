@@ -195,12 +195,19 @@ sync_to_live() {
     fi
   done
 
-  # 同步配置目录中的新文件 (增量更新)
+  # 同步配置目录中的新文件 (增量更新，不覆盖已有文件)
   if [ -d "$MODPATH/config" ]; then
     print_step "增量更新配置..."
 
-    # 复制新增的配置文件 (不覆盖已存在的)
-    cp -rn "$MODPATH/config/"* "$LIVE_DIR/config/" 2> /dev/null
+    # 遍历新配置文件，仅复制目标不存在的文件（兼容不支持 cp -n 的 busybox）
+    find "$MODPATH/config" -type f | while IFS= read -r src_file; do
+      local rel_path="${src_file#$MODPATH/config/}"
+      local dst_file="$LIVE_DIR/config/$rel_path"
+      if [ ! -e "$dst_file" ]; then
+        mkdir -p "$(dirname "$dst_file")"
+        cp "$src_file" "$dst_file" 2> /dev/null
+      fi
+    done
     print_ok "配置目录已增量更新"
   fi
 

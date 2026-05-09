@@ -39,8 +39,11 @@ set_conf() {
 
   require_file "$file" "配置文件不存在: $file"
 
+  local escaped_value
+  escaped_value="$(printf '%s' "$value" | sed 's/[|&/\]/\\&/g')"
+
   if grep -q "^${key}=" "$file" 2> /dev/null; then
-    sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+    sed -i "s|^${key}=.*|${key}=${escaped_value}|" "$file"
   else
     printf "%s=%s\n" "$key" "$value" >> "$file"
   fi

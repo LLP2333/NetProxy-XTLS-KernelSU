@@ -240,7 +240,8 @@ load_config() {
             BYPASS_CN_IP CN_IP_FILE CN_IPV6_FILE CN_IP_URL CN_IPV6_URL \
             MAC_FILTER_ENABLE PROXY_MACS_LIST BYPASS_MACS_LIST MAC_PROXY_MODE \
             BLOCK_QUIC LOG_TIMESTAMP SKIP_CHECK_FEATURE; do
-            eval "log Debug \"$_var: \$$_var\""
+            _val="$(printenv "$_var" 2>/dev/null)" || _val=""
+            log Debug "$_var: $_val"
         done
     fi
 

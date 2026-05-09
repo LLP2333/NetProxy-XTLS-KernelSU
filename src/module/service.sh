@@ -13,7 +13,7 @@ readonly LOG_FILE="$MODDIR/logs/service.log"
 load_module_config() {
   # 设置开机服务默认值
   AUTO_START=1
-  GMS_FIX=1
+  GMS_FIX=0
 
   if [ -f "$MODULE_CONF" ]; then
     . "$MODULE_CONF"

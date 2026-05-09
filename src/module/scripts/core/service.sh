@@ -77,13 +77,21 @@ do_start() {
   nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" > "$XRAY_LOG_FILE" 2>&1 &
 
   new_pid=$!
-  sleep 1
 
-  if kill -0 "$new_pid" 2> /dev/null; then
-    log "INFO" "Xray 启动成功 (PID: $new_pid)"
-  else
-    die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
-  fi
+  local wait_count=0
+  local max_wait=5
+  while [ "$wait_count" -lt "$max_wait" ]; do
+    sleep 1
+    if ! kill -0 "$new_pid" 2> /dev/null; then
+      die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
+    fi
+    wait_count=$((wait_count + 1))
+    if [ "$wait_count" -ge 2 ]; then
+      break
+    fi
+  done
+
+  log "INFO" "Xray 启动成功 (PID: $new_pid)"
 
   log "INFO" "正在加载透明代理规则..."
   if ! "$TPROXY_SCRIPT" start -d "$TPROXY_CONF_DIR" >> "$LOG_FILE" 2>&1; then
