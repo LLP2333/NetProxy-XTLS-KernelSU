@@ -1,140 +1,237 @@
 #!/system/bin/sh
 # TProxy 透明代理网络规则管理
-# 参考 NetProxy-Magisk 实现
-# 核心原理：iptables mangle TPROXY + owner match 绕过 + ip rule 策略路由
+# 完全参考 NetProxy-Magisk 实现
+# iptables mangle TPROXY + owner match + ip rule 策略路由
 
 set -u
 
-readonly MODDIR="$(cd "$(dirname "$0")/../.." && pwd)"
-readonly LOG_FILE="$MODDIR/logs/service.log"
-readonly MODULE_CONF="$MODDIR/config/module.conf"
+export TZ=Asia/Shanghai
 
-. "$MODDIR/scripts/utils/common.sh"
-. "$MODDIR/scripts/utils/config.sh"
+readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 
-TPROXY_PORT="$(read_conf "$MODULE_CONF" "TPROXY_PORT" "12345")"
-
-# 代理进程的用户和组（与 service.sh 中 setuidgid 一致）
+# 代理进程用户/组（与 service.sh 中 setuidgid 一致）
 readonly CORE_USER="root"
 readonly CORE_GROUP="net_admin"
 
-# 内部路由标记（仅 iptables/ip rule 使用，Xray 配置无需设置 sockopt.mark）
+readonly PROXY_PORT="12345"
+
 readonly MARK=20
 readonly TABLE_ID=100
 
-readonly RESERVED_IPV4="
-    0.0.0.0/8
-    10.0.0.0/8
-    100.64.0.0/10
-    127.0.0.0/8
-    169.254.0.0/16
-    172.16.0.0/12
-    192.0.0.0/24
-    192.168.0.0/16
-    224.0.0.0/4
-    240.0.0.0/4
-    255.255.255.255/32
-"
+readonly RESERVED_IPV4="0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 255.255.255.255/32"
 
-ipt() {
+################################################################################
+# 日志
+################################################################################
+
+log() {
+  local level="$1" message="$2"
+  local ts
+  ts="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '-')"
+  printf '%s\n' "[$ts] [$level] $message" >&2
+}
+
+################################################################################
+# iptables / ip 封装（参考 NetProxy-Magisk）
+################################################################################
+
+iptables() {
+  log "DEBUG" "[EXEC] iptables -w 100 $*"
   command iptables -w 100 "$@"
 }
 
-################################################################################
-# 规则管理
-################################################################################
-
-flush_rules() {
-  ipt -t mangle -D PREROUTING -p tcp -j XRAY 2> /dev/null
-  ipt -t mangle -D PREROUTING -p udp -j XRAY 2> /dev/null
-  ipt -t mangle -F XRAY 2> /dev/null
-  ipt -t mangle -X XRAY 2> /dev/null
-
-  ipt -t mangle -D OUTPUT -p tcp -j XRAY_SELF 2> /dev/null
-  ipt -t mangle -D OUTPUT -p udp -j XRAY_SELF 2> /dev/null
-  ipt -t mangle -F XRAY_SELF 2> /dev/null
-  ipt -t mangle -X XRAY_SELF 2> /dev/null
-
-  ip rule del fwmark "$MARK" table "$TABLE_ID" 2> /dev/null
-  ip route del local default dev lo table "$TABLE_ID" 2> /dev/null
+ip_rule() {
+  log "DEBUG" "[EXEC] ip rule $*"
+  command ip rule "$@"
 }
 
-apply_rules() {
+ip_route() {
+  log "DEBUG" "[EXEC] ip route $*"
+  command ip route "$@"
+}
+
+################################################################################
+# 环境检查
+################################################################################
+
+setup_env() {
+  export PATH="$PATH:/system/bin:/system/xbin:/data/data/com.termux/files/usr/bin"
+
+  local bb
+  for bb in /data/adb/ksu/bin/busybox /data/adb/ap/bin/busybox /data/adb/magisk/busybox; do
+    if [ -f "$bb" ] && [ -x "$bb" ]; then
+      export PATH="$PATH:$(dirname "$bb")"
+      break
+    fi
+  done
+
+  if [ "$(id -u 2>/dev/null || echo 1)" != "0" ]; then
+    log "ERROR" "需要 root 权限"
+    exit 1
+  fi
+
+  local cmd
+  for cmd in ip iptables; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      log "ERROR" "缺少必要命令: $cmd (PATH=$PATH)"
+      exit 1
+    fi
+  done
+}
+
+################################################################################
+# 链创建辅助
+################################################################################
+
+safe_chain_create() {
+  local table="$1" chain="$2"
+  iptables -t "$table" -N "$chain" 2>/dev/null || true
+  iptables -t "$table" -F "$chain"
+}
+
+################################################################################
+# 清理
+################################################################################
+
+cleanup() {
+  log "INFO" "清理透明代理规则..."
+
+  # 从主链摘除跳转
+  iptables -t mangle -D PREROUTING -p tcp -j PROXY_PREROUTING 2>/dev/null || true
+  iptables -t mangle -D PREROUTING -p udp -j PROXY_PREROUTING 2>/dev/null || true
+  iptables -t mangle -D OUTPUT -p tcp -j PROXY_OUTPUT 2>/dev/null || true
+  iptables -t mangle -D OUTPUT -p udp -j PROXY_OUTPUT 2>/dev/null || true
+
+  # 删除子链
+  local chain
+  for chain in PROXY_PREROUTING PROXY_OUTPUT PROXY_DIVERT; do
+    iptables -t mangle -F "$chain" 2>/dev/null || true
+    iptables -t mangle -X "$chain" 2>/dev/null || true
+  done
+
+  # 清理策略路由
+  ip_rule del fwmark "$MARK" table "$TABLE_ID" 2>/dev/null || true
+  ip_route del local default dev lo table "$TABLE_ID" 2>/dev/null || true
+
+  log "INFO" "透明代理规则已清理"
+}
+
+################################################################################
+# 启动
+################################################################################
+
+start() {
+  log "INFO" "加载透明代理规则 (端口=$PROXY_PORT, 标记=$MARK, 绕过=$CORE_USER:$CORE_GROUP)..."
+
   local cidr
 
   # ── 策略路由 ──
-  ip rule add fwmark "$MARK" table "$TABLE_ID"
-  ip route add local default dev lo table "$TABLE_ID"
+  ip_rule add fwmark "$MARK" table "$TABLE_ID" || {
+    log "ERROR" "ip rule add 失败"; return 1
+  }
+  ip_route add local default dev lo table "$TABLE_ID" || {
+    log "ERROR" "ip route add 失败"; return 1
+  }
   echo 1 > /proc/sys/net/ipv4/ip_forward
 
-  # ── PREROUTING：对进入的流量做 TPROXY ──
-  ipt -t mangle -N XRAY
+  # ── PREROUTING 链 ──
+  safe_chain_create mangle PROXY_PREROUTING
 
-  # 跳过已建立连接的回复方向包
-  ipt -t mangle -A XRAY -m conntrack --ctdir REPLY -j RETURN
+  # 已有连接的回复方向跳过
+  iptables -t mangle -A PROXY_PREROUTING -m conntrack --ctdir REPLY -j RETURN
 
+  # 保留地址跳过
   for cidr in $RESERVED_IPV4; do
-    ipt -t mangle -A XRAY -d "$cidr" -j RETURN
+    iptables -t mangle -A PROXY_PREROUTING -d "$cidr" -j RETURN
   done
 
-  ipt -t mangle -A XRAY -p tcp -j TPROXY \
-    --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"
-  ipt -t mangle -A XRAY -p udp -j TPROXY \
-    --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"
+  # TPROXY 劫持
+  iptables -t mangle -A PROXY_PREROUTING -p tcp -j TPROXY \
+    --on-port "$PROXY_PORT" --tproxy-mark "$MARK"
+  iptables -t mangle -A PROXY_PREROUTING -p udp -j TPROXY \
+    --on-port "$PROXY_PORT" --tproxy-mark "$MARK"
 
-  ipt -t mangle -A PREROUTING -p tcp -j XRAY
-  ipt -t mangle -A PREROUTING -p udp -j XRAY
+  # 挂载到主链（-I 插入最前）
+  iptables -t mangle -I PREROUTING -p tcp -j PROXY_PREROUTING
+  iptables -t mangle -I PREROUTING -p udp -j PROXY_PREROUTING
 
-  # ── OUTPUT：拦截本机流量 ──
-  ipt -t mangle -N XRAY_SELF
+  # ── OUTPUT 链 ──
+  safe_chain_create mangle PROXY_OUTPUT
 
-  # 跳过已建立连接的回复方向包
-  ipt -t mangle -A XRAY_SELF -m conntrack --ctdir REPLY -j RETURN
+  # 已有连接的回复方向跳过
+  iptables -t mangle -A PROXY_OUTPUT -m conntrack --ctdir REPLY -j RETURN
 
-  # 通过 owner match 绕过代理进程自身流量，防止回环
-  ipt -t mangle -A XRAY_SELF -m owner \
+  # owner match 绕过代理进程自身流量
+  iptables -t mangle -A PROXY_OUTPUT -m owner \
     --uid-owner "$CORE_USER" --gid-owner "$CORE_GROUP" -j RETURN
 
+  # 保留地址跳过
   for cidr in $RESERVED_IPV4; do
-    ipt -t mangle -A XRAY_SELF -d "$cidr" -j RETURN
+    iptables -t mangle -A PROXY_OUTPUT -d "$cidr" -j RETURN
   done
 
-  # 给剩余流量打标记 → 触发 ip rule 重路由到 lo → 进入 PREROUTING 的 TPROXY
-  ipt -t mangle -A XRAY_SELF -p tcp -j MARK --set-mark "$MARK"
-  ipt -t mangle -A XRAY_SELF -p udp -j MARK --set-mark "$MARK"
+  # 给剩余流量打标记 → ip rule 重路由到 lo → PREROUTING TPROXY
+  iptables -t mangle -A PROXY_OUTPUT -p tcp -j MARK --set-mark "$MARK"
+  iptables -t mangle -A PROXY_OUTPUT -p udp -j MARK --set-mark "$MARK"
 
-  ipt -t mangle -A OUTPUT -p tcp -j XRAY_SELF
-  ipt -t mangle -A OUTPUT -p udp -j XRAY_SELF
+  # 挂载到主链
+  iptables -t mangle -I OUTPUT -p tcp -j PROXY_OUTPUT
+  iptables -t mangle -I OUTPUT -p udp -j PROXY_OUTPUT
+
+  # ── 验证 ──
+  log "INFO" "透明代理规则已加载，验证中..."
+  log "DEBUG" "--- PREROUTING ---"
+  command iptables -w 100 -t mangle -L PREROUTING -n 2>&1 | while IFS= read -r line; do
+    log "DEBUG" "  $line"
+  done
+  log "DEBUG" "--- PROXY_PREROUTING ---"
+  command iptables -w 100 -t mangle -L PROXY_PREROUTING -n 2>&1 | while IFS= read -r line; do
+    log "DEBUG" "  $line"
+  done
+  log "DEBUG" "--- OUTPUT ---"
+  command iptables -w 100 -t mangle -L OUTPUT -n 2>&1 | while IFS= read -r line; do
+    log "DEBUG" "  $line"
+  done
+  log "DEBUG" "--- PROXY_OUTPUT ---"
+  command iptables -w 100 -t mangle -L PROXY_OUTPUT -n 2>&1 | while IFS= read -r line; do
+    log "DEBUG" "  $line"
+  done
+  log "DEBUG" "--- ip rule ---"
+  command ip rule show 2>&1 | while IFS= read -r line; do
+    log "DEBUG" "  $line"
+  done
+
+  log "INFO" "透明代理启动完成"
 }
 
 ################################################################################
 # 入口
 ################################################################################
 
-do_start() {
-  log "INFO" "加载透明代理规则 (端口=$TPROXY_PORT, 标记=$MARK, 绕过=$CORE_USER:$CORE_GROUP)..."
-  flush_rules
-  if apply_rules; then
-    log "INFO" "透明代理规则已加载"
-  else
-    log "ERROR" "透明代理规则加载失败"
-    flush_rules
-    return 1
-  fi
+main() {
+  local cmd="${1:-}"
+
+  case "$cmd" in
+    start)
+      setup_env
+      cleanup
+      start
+      ;;
+    stop)
+      setup_env
+      cleanup
+      ;;
+    restart)
+      setup_env
+      cleanup
+      sleep 1
+      start
+      ;;
+    *)
+      echo "用法: $0 {start|stop|restart}"
+      exit 1
+      ;;
+  esac
 }
 
-do_stop() {
-  log "INFO" "清理透明代理规则..."
-  flush_rules
-  log "INFO" "透明代理规则已清理"
-}
-
-case "${1:-}" in
-  start) do_start ;;
-  stop) do_stop ;;
-  restart) do_stop; do_start ;;
-  *)
-    echo "用法: $0 {start|stop|restart}"
-    exit 1
-    ;;
-esac
+main "$@"

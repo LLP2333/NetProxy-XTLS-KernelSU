@@ -90,7 +90,7 @@ do_start() {
   log "INFO" "Xray 启动成功 (PID: $new_pid)"
 
   log "INFO" "正在加载透明代理规则..."
-  if ! sh "$TPROXY_SCRIPT" start >> "$LOG_FILE" 2>&1; then
+  if ! "$TPROXY_SCRIPT" start >> "$LOG_FILE" 2>&1; then
     kill "$new_pid" 2> /dev/null || true
     die "透明代理规则加载失败，已停止 Xray 进程"
   fi
@@ -109,7 +109,7 @@ do_stop() {
 
   # 无论 Xray 是否在运行，都清理 iptables 规则
   if [ -f "$TPROXY_SCRIPT" ]; then
-    sh "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true
+    "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true
   fi
 
   pid="$(get_pid "$XRAY_BIN")"
