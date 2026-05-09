@@ -10,15 +10,12 @@ readonly CONFIG_DIR="$MODDIR/config"
 readonly MODULE_CONF="$CONFIG_DIR/module.conf"
 readonly XRAY_DIR="$CONFIG_DIR/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
-readonly TPROXY_DIR="$CONFIG_DIR/tproxy"
-readonly TPROXY_CONF="$TPROXY_DIR/tproxy.conf"
 readonly LOG_DIR="$MODDIR/logs"
 readonly SERVICE_LOG="$LOG_DIR/service.log"
 readonly XRAY_LOG="$LOG_DIR/xray.log"
 
 readonly XRAY_BIN="$MODDIR/bin/xray"
 readonly SERVICE_SCRIPT="$SCRIPTS_DIR/core/service.sh"
-readonly TPROXY_SCRIPT="$SCRIPTS_DIR/network/tproxy.sh"
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -77,16 +74,6 @@ read_xray_config() {
   printf "%s" "$config"
 }
 
-reload_tproxy_if_running() {
-  if is_running; then
-    info "正在重载透明代理规则..."
-    sh "$TPROXY_SCRIPT" restart -d "$TPROXY_DIR" > /dev/null 2>&1 || die_cli "透明代理规则重载失败"
-    info "透明代理规则已重载"
-  else
-    info "服务未运行，配置将在下次启动时生效"
-  fi
-}
-
 #######################################
 # help
 #######################################
@@ -112,33 +99,11 @@ show_xray_help() {
 EOF
 }
 
-show_app_help() {
-  cat << EOF
-用法:
-  cli app list                        查看分应用代理配置
-  cli app mode <blacklist|whitelist>  设置分应用模式
-  cli app add <包名>                  添加应用
-  cli app remove <包名>               移除应用
-  cli app enable                      启用分应用代理
-  cli app disable                     禁用分应用代理
-EOF
-}
-
-show_tproxy_help() {
-  cat << EOF
-用法:
-  cli tproxy status                   查看透明代理配置
-  cli tproxy reload                   重载透明代理规则
-  cli tproxy quic <on|off>            开关 QUIC 阻断
-  cli tproxy cnip <on|off>            开关中国 IP 绕过
-EOF
-}
-
 #######################################
 # service 命令
 #######################################
 cmd_service_status() {
-  local pid config version tcp_port udp_port dns_port proxy_mode routing_mark
+  local pid config version
 
   section "服务状态"
   pid="$(get_pid "$XRAY_BIN")"
@@ -152,16 +117,8 @@ cmd_service_status() {
   fi
 
   config="$(read_xray_config)"
-  tcp_port="$(read_conf "$TPROXY_CONF" "PROXY_TCP_PORT" "-")"
-  udp_port="$(read_conf "$TPROXY_CONF" "PROXY_UDP_PORT" "-")"
-  dns_port="$(read_conf "$TPROXY_CONF" "DNS_PORT" "-")"
-  proxy_mode="$(read_conf "$TPROXY_CONF" "PROXY_MODE" "1")"
-  routing_mark="$(read_conf "$TPROXY_CONF" "ROUTING_MARK" "2")"
-
+  printf "代理模式: TUN\n"
   printf "Xray 配置: %s\n" "$config"
-  printf "透明代理端口: TCP=%s UDP=%s DNS=%s\n" "$tcp_port" "$udp_port" "$dns_port"
-  printf "透明代理模式: %s\n" "$proxy_mode"
-  printf "Xray 出站标记: %s\n" "$routing_mark"
 
   if [ -x "$XRAY_BIN" ]; then
     version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
@@ -265,160 +222,11 @@ cmd_xray() {
 }
 
 #######################################
-# app 命令
-#######################################
-cmd_app_list() {
-  printf "分应用代理: %s\n" "$(read_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "0")"
-  printf "应用模式: %s\n" "$(read_conf "$TPROXY_CONF" "APP_PROXY_MODE" "blacklist")"
-  printf "代理列表: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_APPS_LIST" "")"
-  printf "绕过列表: %s\n" "$(read_conf "$TPROXY_CONF" "BYPASS_APPS_LIST" "")"
-}
-
-cmd_app_mode() {
-  local mode="${1:-}"
-
-  case "$mode" in
-    blacklist | whitelist) ;;
-    *) die_cli "用法: cli app mode <blacklist|whitelist>" ;;
-  esac
-
-  set_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "1"
-  set_conf "$TPROXY_CONF" "APP_PROXY_MODE" "$(quote_conf "$mode")"
-  info "应用模式已设置为: $mode"
-  reload_tproxy_if_running
-}
-
-cmd_app_add() {
-  local package="${1:-}"
-  local mode current_list new_list
-
-  [ -n "$package" ] || die_cli "用法: cli app add <包名>"
-
-  set_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "1"
-  mode="$(read_conf "$TPROXY_CONF" "APP_PROXY_MODE" "blacklist")"
-
-  if [ "$mode" = "whitelist" ]; then
-    current_list="$(read_conf "$TPROXY_CONF" "PROXY_APPS_LIST" "")"
-    new_list="$(list_add "$current_list" "$package")"
-    set_conf "$TPROXY_CONF" "PROXY_APPS_LIST" "$(quote_conf "$new_list")"
-  else
-    current_list="$(read_conf "$TPROXY_CONF" "BYPASS_APPS_LIST" "")"
-    new_list="$(list_add "$current_list" "$package")"
-    set_conf "$TPROXY_CONF" "BYPASS_APPS_LIST" "$(quote_conf "$new_list")"
-  fi
-
-  info "已添加应用: $package"
-  reload_tproxy_if_running
-}
-
-cmd_app_remove() {
-  local package="${1:-}"
-  local proxy_list bypass_list
-
-  [ -n "$package" ] || die_cli "用法: cli app remove <包名>"
-
-  proxy_list="$(list_remove "$(read_conf "$TPROXY_CONF" "PROXY_APPS_LIST" "")" "$package")"
-  bypass_list="$(list_remove "$(read_conf "$TPROXY_CONF" "BYPASS_APPS_LIST" "")" "$package")"
-  set_conf "$TPROXY_CONF" "PROXY_APPS_LIST" "$(quote_conf "$proxy_list")"
-  set_conf "$TPROXY_CONF" "BYPASS_APPS_LIST" "$(quote_conf "$bypass_list")"
-
-  info "已移除应用: $package"
-  reload_tproxy_if_running
-}
-
-cmd_app_enable() {
-  set_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "1"
-  info "分应用代理已启用"
-  reload_tproxy_if_running
-}
-
-cmd_app_disable() {
-  set_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "0"
-  info "分应用代理已禁用"
-  reload_tproxy_if_running
-}
-
-cmd_app() {
-  local subcmd="${1:-list}"
-  shift 2> /dev/null || true
-
-  case "$subcmd" in
-    list) cmd_app_list "$@" ;;
-    mode) cmd_app_mode "$@" ;;
-    add) cmd_app_add "$@" ;;
-    remove | rm) cmd_app_remove "$@" ;;
-    enable) cmd_app_enable "$@" ;;
-    disable) cmd_app_disable "$@" ;;
-    help | -h | --help) show_app_help ;;
-    *) die_cli "用法错误，使用 cli app help 查看帮助" ;;
-  esac
-}
-
-#######################################
-# tproxy 命令
-#######################################
-cmd_tproxy_status() {
-  section "透明代理配置"
-  printf "TCP 端口: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_TCP_PORT" "-")"
-  printf "UDP 端口: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_UDP_PORT" "-")"
-  printf "DNS 端口: %s\n" "$(read_conf "$TPROXY_CONF" "DNS_PORT" "-")"
-  printf "代理模式: %s\n" "$(read_conf "$TPROXY_CONF" "PROXY_MODE" "1")"
-  printf "出站标记: %s\n" "$(read_conf "$TPROXY_CONF" "ROUTING_MARK" "2")"
-  printf "分应用代理: %s\n" "$(read_conf "$TPROXY_CONF" "APP_PROXY_ENABLE" "0")"
-  printf "阻断 QUIC: %s\n" "$(read_conf "$TPROXY_CONF" "BLOCK_QUIC" "0")"
-  printf "绕过中国 IP: %s\n" "$(read_conf "$TPROXY_CONF" "BYPASS_CN_IP" "0")"
-}
-
-cmd_tproxy_reload() {
-  reload_tproxy_if_running
-}
-
-cmd_tproxy_quic() {
-  local value="${1:-}"
-
-  case "$value" in
-    on) set_conf "$TPROXY_CONF" "BLOCK_QUIC" "1" ;;
-    off) set_conf "$TPROXY_CONF" "BLOCK_QUIC" "0" ;;
-    *) die_cli "用法: cli tproxy quic <on|off>" ;;
-  esac
-
-  info "QUIC 设置已更新: $value"
-  reload_tproxy_if_running
-}
-
-cmd_tproxy_cnip() {
-  local value="${1:-}"
-
-  case "$value" in
-    on) set_conf "$TPROXY_CONF" "BYPASS_CN_IP" "1" ;;
-    off) set_conf "$TPROXY_CONF" "BYPASS_CN_IP" "0" ;;
-    *) die_cli "用法: cli tproxy cnip <on|off>" ;;
-  esac
-
-  info "中国 IP 绕过已更新: $value"
-  reload_tproxy_if_running
-}
-
-cmd_tproxy() {
-  local subcmd="${1:-status}"
-  shift 2> /dev/null || true
-
-  case "$subcmd" in
-    status) cmd_tproxy_status "$@" ;;
-    reload | restart) cmd_tproxy_reload "$@" ;;
-    quic) cmd_tproxy_quic "$@" ;;
-    cnip) cmd_tproxy_cnip "$@" ;;
-    help | -h | --help) show_tproxy_help ;;
-    *) die_cli "用法错误，使用 cli tproxy help 查看帮助" ;;
-  esac
-}
-
-#######################################
 # 总帮助
 #######################################
 show_help() {
   cat << EOF
-NetProxy CLI
+NetProxy CLI (TUN 模式)
 
 服务:
   cli service status                  查看服务状态
@@ -433,20 +241,6 @@ Xray:
   cli xray show                       输出当前配置内容
   cli xray test                       校验当前配置
   cli xray version                    查看 Xray 版本
-
-分应用代理:
-  cli app list                        查看分应用代理配置
-  cli app mode <blacklist|whitelist>  设置分应用模式
-  cli app add <包名>                  添加应用
-  cli app remove <包名>               移除应用
-  cli app enable                      启用分应用代理
-  cli app disable                     禁用分应用代理
-
-透明代理:
-  cli tproxy status                   查看透明代理配置
-  cli tproxy reload                   重载透明代理规则
-  cli tproxy quic <on|off>            开关 QUIC 阻断
-  cli tproxy cnip <on|off>            开关中国 IP 绕过
 EOF
 }
 
@@ -462,8 +256,6 @@ main() {
   case "$group" in
     service) cmd_service "$@" ;;
     xray | core) cmd_xray "$@" ;;
-    app) cmd_app "$@" ;;
-    tproxy) cmd_tproxy "$@" ;;
     help | -h | --help) show_help ;;
     *) die_cli "未知命令组: $group，使用 cli help 查看帮助" ;;
   esac

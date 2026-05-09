@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# NetProxy Xray 服务管理脚本
+# NetProxy Xray 服务管理脚本 (TUN 模式)
 # 用法: service.sh {start|stop|restart|status}
 
 set -u
@@ -8,11 +8,9 @@ readonly MODDIR="$(cd "$(dirname "$0")/../.." && pwd)"
 readonly LOG_FILE="$MODDIR/logs/service.log"
 readonly XRAY_BIN="$MODDIR/bin/xray"
 readonly MODULE_CONF="$MODDIR/config/module.conf"
-readonly TPROXY_CONF_DIR="$MODDIR/config/tproxy"
 readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
-readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
 readonly KILL_TIMEOUT=5
 
 . "$MODDIR/scripts/utils/common.sh"
@@ -42,8 +40,8 @@ verify_environment() {
 
   require_file "$XRAY_BIN" "Xray 二进制不存在: $XRAY_BIN"
   require_file "$MODULE_CONF" "模块配置文件不存在: $MODULE_CONF"
-  require_file "$TPROXY_CONF_DIR/tproxy.conf" "透明代理配置文件不存在: $TPROXY_CONF_DIR/tproxy.conf"
   require_dir "$XRAY_DIR" "Xray 配置目录不存在: $XRAY_DIR"
+
   if [ "$mode" = "start" ]; then
     require_file "$XRAY_CONFIG" "Xray 配置文件不存在: $XRAY_CONFIG"
   fi
@@ -57,7 +55,7 @@ verify_environment() {
 do_start() {
   local pid new_pid
 
-  log "INFO" "========== 开始启动 Xray 服务 =========="
+  log "INFO" "========== 开始启动 Xray 服务 (TUN 模式) =========="
   verify_environment start
 
   pid="$(get_pid "$XRAY_BIN")"
@@ -79,26 +77,16 @@ do_start() {
   new_pid=$!
 
   local wait_count=0
-  local max_wait=5
-  while [ "$wait_count" -lt "$max_wait" ]; do
+  while [ "$wait_count" -lt 3 ]; do
     sleep 1
     if ! kill -0 "$new_pid" 2> /dev/null; then
       die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
     fi
     wait_count=$((wait_count + 1))
-    if [ "$wait_count" -ge 2 ]; then
-      break
-    fi
   done
 
   log "INFO" "Xray 启动成功 (PID: $new_pid)"
-
-  log "INFO" "正在加载透明代理规则..."
-  if ! "$TPROXY_SCRIPT" start -d "$TPROXY_CONF_DIR" >> "$LOG_FILE" 2>&1; then
-    kill "$new_pid" 2> /dev/null || true
-    die "透明代理规则加载失败，已停止 Xray 进程"
-  fi
-
+  log "INFO" "TUN 接口和路由由 Xray 内建管理"
   log "INFO" "========== Xray 服务启动完成 =========="
 }
 
@@ -110,9 +98,6 @@ do_stop() {
 
   log "INFO" "========== 开始停止 Xray 服务 =========="
   verify_environment stop
-
-  log "INFO" "正在清理透明代理规则..."
-  "$TPROXY_SCRIPT" stop -d "$TPROXY_CONF_DIR" >> "$LOG_FILE" 2>&1 || true
 
   pid="$(get_pid "$XRAY_BIN")"
   if [ -z "$pid" ]; then
@@ -136,7 +121,7 @@ do_stop() {
     fi
   fi
 
-  log "INFO" "Xray 进程已停止"
+  log "INFO" "Xray 进程已停止（TUN 接口和路由已自动清理）"
   log "INFO" "========== Xray 服务停止完成 =========="
 }
 

@@ -8,7 +8,6 @@
     "servers": [
       {
         "address": "223.5.5.5",
-        "port": 53,
         "domains": [
           "geosite:cn"
         ],
@@ -18,7 +17,6 @@
       },
       {
         "address": "119.29.29.29",
-        "port": 53,
         "domains": [
           "geosite:cn"
         ],
@@ -33,12 +31,21 @@
   },
   "inbounds": [
     {
-      "tag": "tproxy-in",
-      "port": 1536,
-      "protocol": "dokodemo-door",
+      "tag": "tun-in",
+      "protocol": "tun",
       "settings": {
-        "allowedNetwork": "tcp,udp",
-        "followRedirect": true
+        "name": "xray0",
+        "mtu": 1500,
+        "gateway": [
+          "10.0.0.1/16"
+        ],
+        "dns": [
+          "1.1.1.1"
+        ],
+        "autoSystemRoutingTable": [
+          "0.0.0.0/0"
+        ],
+        "autoOutboundsInterface": "auto"
       },
       "sniffing": {
         "enabled": true,
@@ -47,11 +54,6 @@
           "tls",
           "quic"
         ]
-      },
-      "streamSettings": {
-        "sockopt": {
-          "tproxy": "tproxy"
-        }
       }
     }
   ],
@@ -61,11 +63,6 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
-      },
-      "streamSettings": {
-        "sockopt": {
-          "mark": 2
-        }
       }
     },
     {
@@ -73,11 +70,6 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
-      },
-      "streamSettings": {
-        "sockopt": {
-          "mark": 2
-        }
       }
     },
     {
@@ -91,26 +83,13 @@
     },
     {
       "tag": "dns-out",
-      "protocol": "dns",
-      "settings": {
-        "rewriteNetwork": "udp",
-        "rewriteAddress": "223.5.5.5",
-        "rewritePort": 53
-      },
-      "streamSettings": {
-        "sockopt": {
-          "mark": 2
-        }
-      }
+      "protocol": "dns"
     }
   ],
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
       {
-        "inboundTag": [
-          "tproxy-in"
-        ],
         "port": 53,
         "outboundTag": "dns-out"
       },
