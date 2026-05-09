@@ -46,8 +46,8 @@ jobs:
           7z a -tzip -mx=9 "../../${{ env.FULL_NAME }}" .
           # 2. 精简包 (排除 IPSET 相关文件)
           7z a -tzip -mx=9 "../../${{ env.LITE_NAME }}" . -x!"bin/IPSET-LKM/*" -x!"bin/ipset"
-          # 3. 纯脚本包 (排除所有二进制文件)
-          7z a -tzip -mx=9 "../../${{ env.MINI_NAME }}" . -x!"bin/sing-box" -x!"bin/proxylink" -x!"bin/ipset" -x!"bin/IPSET-LKM/*" -x!"bin/zashboard/*"
+          # 3. 纯脚本包 (排除所有二进制文件和 geodata)
+          7z a -tzip -mx=9 "../../${{ env.MINI_NAME }}" . -x!"bin/xray" -x!"bin/ipset" -x!"bin/IPSET-LKM/*" -x!"config/xray/geoip.dat" -x!"config/xray/geosite.dat"
           cd ../..
 
       - name: 发送模块到 Telegram (分支推送/手动触发)
@@ -73,7 +73,7 @@ jobs:
           curl -s -F "chat_id=${{ secrets.TG_CHAT_ID }}" -F "document=@${{ env.LITE_NAME }}" -F "message_thread_id=2275" -F "caption=lite: 不含 IPSET 驱动，适用于内核已内置 IPSET 的设备" https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendDocument
 
           # 发送纯脚本包
-          curl -s -F "chat_id=${{ secrets.TG_CHAT_ID }}" -F "document=@${{ env.MINI_NAME }}" -F "message_thread_id=2275" -F "caption=mini: 不含二进制文件和 IPSET 驱动，需自行放入 sing-box、proxylink、zashboard 等组件" https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendDocument
+          curl -s -F "chat_id=${{ secrets.TG_CHAT_ID }}" -F "document=@${{ env.MINI_NAME }}" -F "message_thread_id=2275" -F "caption=mini: 不含 Xray 二进制、geodata 和 IPSET 驱动，需自行放入 xray、geoip.dat、geosite.dat 等组件" https://api.telegram.org/bot${{ secrets.TG_BOT_TOKEN }}/sendDocument
 
       - name: 发布 GitHub Release (Tag 触发)
         if: ${{ github.ref_type == 'tag' }}
