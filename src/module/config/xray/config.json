@@ -31,21 +31,12 @@
   },
   "inbounds": [
     {
-      "tag": "tun-in",
-      "protocol": "tun",
+      "tag": "tproxy-in",
+      "protocol": "dokodemo-door",
+      "port": 12345,
       "settings": {
-        "name": "xray0",
-        "mtu": 1500,
-        "gateway": [
-          "10.0.0.1/16"
-        ],
-        "dns": [
-          "1.1.1.1"
-        ],
-        "autoSystemRoutingTable": [
-          "0.0.0.0/0"
-        ],
-        "autoOutboundsInterface": "auto"
+        "network": "tcp,udp",
+        "followRedirect": true
       },
       "sniffing": {
         "enabled": true,
@@ -54,6 +45,11 @@
           "tls",
           "quic"
         ]
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tproxy": "tproxy"
+        }
       }
     }
   ],
@@ -63,6 +59,11 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
+      },
+      "streamSettings": {
+        "sockopt": {
+          "mark": 255
+        }
       }
     },
     {
@@ -70,6 +71,11 @@
       "protocol": "freedom",
       "settings": {
         "domainStrategy": "UseIPv4"
+      },
+      "streamSettings": {
+        "sockopt": {
+          "mark": 255
+        }
       }
     },
     {
@@ -83,7 +89,12 @@
     },
     {
       "tag": "dns-out",
-      "protocol": "dns"
+      "protocol": "dns",
+      "streamSettings": {
+        "sockopt": {
+          "mark": 255
+        }
+      }
     }
   ],
   "routing": {

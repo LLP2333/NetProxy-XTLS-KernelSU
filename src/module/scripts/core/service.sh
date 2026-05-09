@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# NetProxy Xray 服务管理脚本 (TUN 模式)
+# NetProxy Xray 服务管理脚本 (TProxy 模式)
 # 用法: service.sh {start|stop|restart|status}
 
 set -u
@@ -11,6 +11,7 @@ readonly MODULE_CONF="$MODDIR/config/module.conf"
 readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
+readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
 readonly KILL_TIMEOUT=5
 
 . "$MODDIR/scripts/utils/common.sh"
@@ -44,6 +45,7 @@ verify_environment() {
 
   if [ "$mode" = "start" ]; then
     require_file "$XRAY_CONFIG" "Xray 配置文件不存在: $XRAY_CONFIG"
+    require_file "$TPROXY_SCRIPT" "TProxy 脚本不存在: $TPROXY_SCRIPT"
   fi
 
   ensure_dir "$MODDIR/logs" "无法创建日志目录: $MODDIR/logs"
@@ -55,7 +57,7 @@ verify_environment() {
 do_start() {
   local pid new_pid
 
-  log "INFO" "========== 开始启动 Xray 服务 (TUN 模式) =========="
+  log "INFO" "========== 开始启动 Xray 服务 =========="
   verify_environment start
 
   pid="$(get_pid "$XRAY_BIN")"
@@ -86,7 +88,13 @@ do_start() {
   done
 
   log "INFO" "Xray 启动成功 (PID: $new_pid)"
-  log "INFO" "TUN 接口和路由由 Xray 内建管理"
+
+  log "INFO" "正在加载透明代理规则..."
+  if ! sh "$TPROXY_SCRIPT" start >> "$LOG_FILE" 2>&1; then
+    kill "$new_pid" 2> /dev/null || true
+    die "透明代理规则加载失败，已停止 Xray 进程"
+  fi
+
   log "INFO" "========== Xray 服务启动完成 =========="
 }
 
@@ -98,6 +106,11 @@ do_stop() {
 
   log "INFO" "========== 开始停止 Xray 服务 =========="
   verify_environment stop
+
+  # 无论 Xray 是否在运行，都清理 iptables 规则
+  if [ -f "$TPROXY_SCRIPT" ]; then
+    sh "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true
+  fi
 
   pid="$(get_pid "$XRAY_BIN")"
   if [ -z "$pid" ]; then
@@ -121,7 +134,7 @@ do_stop() {
     fi
   fi
 
-  log "INFO" "Xray 进程已停止（TUN 接口和路由已自动清理）"
+  log "INFO" "Xray 进程已停止"
   log "INFO" "========== Xray 服务停止完成 =========="
 }
 

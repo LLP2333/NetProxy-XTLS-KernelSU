@@ -26,6 +26,7 @@ readonly EXECUTABLE_FILES="
     action.sh
     scripts/cli
     scripts/core/service.sh
+    scripts/network/tproxy.sh
 "
 
 # 运行时目录，不参与清单比对和同步（相对于模块根目录）
