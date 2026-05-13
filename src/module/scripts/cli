@@ -16,6 +16,9 @@ readonly XRAY_LOG="$LOG_DIR/xray.log"
 
 readonly XRAY_BIN="$MODDIR/bin/xray"
 readonly SERVICE_SCRIPT="$SCRIPTS_DIR/core/service.sh"
+readonly GEO_UPDATE_SCRIPT="$SCRIPTS_DIR/core/geo_update.sh"
+readonly GEOIP_FILE="$XRAY_DIR/geoip.dat"
+readonly GEOSITE_FILE="$XRAY_DIR/geosite.dat"
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -96,6 +99,14 @@ show_xray_help() {
   cli xray show                       输出当前 Xray 配置内容
   cli xray test                       使用 Xray 校验当前配置
   cli xray version                    查看 Xray 版本
+EOF
+}
+
+show_geo_help() {
+  cat << EOF
+用法:
+  cli geo status                      查看 geoip / geosite 文件状态
+  cli geo update [geoip|geosite|all]  在线更新 geo 数据（默认 all）
 EOF
 }
 
@@ -222,6 +233,58 @@ cmd_xray() {
 }
 
 #######################################
+# geo 命令：管理 geoip.dat / geosite.dat
+#######################################
+print_geo_file_status() {
+  local label="$1"
+  local file="$2"
+  local size mtime
+
+  if [ ! -f "$file" ]; then
+    printf "%-10s : %s（缺失）\n" "$label" "$file"
+    return
+  fi
+
+  size="$(wc -c < "$file" 2> /dev/null | tr -d ' ')"
+  mtime="$(date -r "$file" '+%Y-%m-%d %H:%M:%S' 2> /dev/null || echo '未知')"
+  printf "%-10s : %s\n" "$label" "$file"
+  printf "%-10s   大小=%s 字节  修改时间=%s\n" "" "${size:-0}" "$mtime"
+}
+
+cmd_geo_status() {
+  section "Geo 数据状态"
+  print_geo_file_status "geoip"   "$GEOIP_FILE"
+  print_geo_file_status "geosite" "$GEOSITE_FILE"
+}
+
+cmd_geo_update() {
+  local target="${1:-all}"
+
+  [ -f "$GEO_UPDATE_SCRIPT" ] || die_cli "geo-update 脚本不存在: $GEO_UPDATE_SCRIPT"
+
+  info "正在更新 geo 数据 ($target)..."
+  # geo_update.sh 自身只警告不退出非零；这里捕获退出码用于 CLI 友好提示
+  if sh "$GEO_UPDATE_SCRIPT" "$target"; then
+    info "geo 更新完成"
+  else
+    warn "geo 更新失败或部分失败，请查看 service.log"
+    return 1
+  fi
+}
+
+cmd_geo() {
+  local subcmd="${1:-status}"
+  shift 2> /dev/null || true
+
+  case "$subcmd" in
+    status) cmd_geo_status "$@" ;;
+    update) cmd_geo_update "$@" ;;
+    help | -h | --help) show_geo_help ;;
+    *) die_cli "用法错误，使用 cli geo help 查看帮助" ;;
+  esac
+}
+
+#######################################
 # 总帮助
 #######################################
 show_help() {
@@ -241,6 +304,10 @@ Xray:
   cli xray show                       输出当前配置内容
   cli xray test                       校验当前配置
   cli xray version                    查看 Xray 版本
+
+Geo:
+  cli geo status                      查看 geoip / geosite 文件状态
+  cli geo update [geoip|geosite|all]  在线更新 geo 数据（默认 all）
 EOF
 }
 
@@ -256,6 +323,7 @@ main() {
   case "$group" in
     service) cmd_service "$@" ;;
     xray | core) cmd_xray "$@" ;;
+    geo) cmd_geo "$@" ;;
     help | -h | --help) show_help ;;
     *) die_cli "未知命令组: $group，使用 cli help 查看帮助" ;;
   esac

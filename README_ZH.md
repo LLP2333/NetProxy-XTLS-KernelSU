@@ -8,8 +8,10 @@
 
 - 内置 Xray-core Android arm64 二进制。
 - 通过 iptables mangle 表 TPROXY 劫持全部 TCP/UDP 流量到 Xray。
-- 内置 `geoip.dat` 和 `geosite.dat`，供 Xray 路由规则使用。
-- CLI 支持服务启停、Xray 配置校验、日志查看。
+- 内置 `geoip.dat` 和 `geosite.dat`，并支持停止 Xray 前自动在线更新。
+- 启动时把 Xray 版本写入 `service.log`；启动失败自动附带 `xray.log` 末尾日志。
+- 升级模块时**自动保留**已存在的 `bin/xray` / `geoip.dat` / `geosite.dat`，方便用户自行替换不被回滚。
+- CLI 支持服务启停、Xray 配置校验、日志查看、geo 数据更新。
 
 ## 模块结构
 
@@ -25,9 +27,10 @@ src/module/
 │     ├─ geoip.dat
 │     └─ geosite.dat
 ├─ scripts/
-│  ├─ cli                     # CLI 入口（service/xray 子命令）
+│  ├─ cli                     # CLI 入口（service/xray/geo 子命令）
 │  ├─ core/
-│  │  └─ service.sh           # 服务启停核心逻辑
+│  │  ├─ service.sh           # 服务启停核心逻辑
+│  │  └─ geo_update.sh        # 在线更新 geoip/geosite（停止前自动调用）
 │  ├─ network/
 │  │  └─ tproxy.sh            # iptables TPROXY 规则管理
 │  └─ utils/
@@ -108,7 +111,16 @@ su -c '/data/adb/modules/netproxy/scripts/cli service status'
 su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
 su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli geo status'
+su -c '/data/adb/modules/netproxy/scripts/cli geo update'
 ```
+
+## 更新 geoip / geosite
+
+- **停止 Xray 前自动更新**：服务在执行 `stop` / `restart` 时会先在线拉取最新的 `geoip.dat` 和 `geosite.dat`（此时代理仍在运行，下载更稳定）。下载、sha256 校验、原子替换在一个脚本里完成，失败只警告不阻塞停止流程。
+- **手动更新**：执行 `cli geo update` 或 `cli geo update geoip` / `cli geo update geosite`。
+- **关闭自动更新**：在 `module.conf` 中设置 `GEO_UPDATE_ON_STOP=0`。
+- **更换数据源**：修改 `module.conf` 中的 `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL`，默认使用 [`Loyalsoldier/v2ray-rules-dat`](https://github.com/Loyalsoldier/v2ray-rules-dat)，与官方 Xray-install 一致。
 
 ## 更新 Xray
 
@@ -123,6 +135,8 @@ https://github.com/XTLS/Xray-core/releases
 - `xray` -> `src/module/bin/xray`
 - `geoip.dat` -> `src/module/config/xray/geoip.dat`
 - `geosite.dat` -> `src/module/config/xray/geosite.dat`
+
+> 提示：在已安装设备上手动替换 `/data/adb/modules/netproxy/bin/xray` 后，重新刷入模块升级时**不会**覆盖该文件（`geoip.dat` / `geosite.dat` 同理）。需要恢复模块自带版本时，删除目标文件后重新刷入即可。
 
 ## 参考
 

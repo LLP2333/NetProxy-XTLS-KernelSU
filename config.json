@@ -1,0 +1,155 @@
+{
+  "log": {
+    "access": "/data/adb/modules/netproxy/logs/access.log",
+    "error": "/data/adb/modules/netproxy/logs/xray.log",
+    "loglevel": "warning"
+  },
+  "dns": {
+    "hosts": {
+      "dns.google": "8.8.8.8"
+    },
+    "servers": [
+      {
+        "address": "223.5.5.5",
+        "skipFallback": true,
+        "domains": [
+          "geosite:cn",
+          "domain:googleapis.cn",
+          "domain:gstatic.com"
+        ],
+        "expectIPs": [
+          "geoip:cn"
+        ]
+      },
+      "https://dns.google/dns-query",
+      "1.1.1.1"
+    ],
+    "queryStrategy": "UseIPv4"
+  },
+  "inbounds": [
+    {
+      "tag": "tproxy-in",
+      "protocol": "dokodemo-door",
+      "port": 12345,
+      "settings": {
+        "network": "tcp,udp",
+        "followRedirect": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      },
+      "streamSettings": {
+        "sockopt": {
+          "tproxy": "tproxy"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "154.21.94.15",
+            "port": 443,
+            "users": [
+              {
+                "id": "b5cb7281-857f-4c51-b5e8-0ab4000d7343",
+                "email": "t@t.tt",
+                "security": "auto",
+                "encryption": "none",
+                "flow": "xtls-rprx-vision"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "www.microsoft.com",
+          "fingerprint": "safari",
+          "show": false,
+          "publicKey": "bf5JPMfpfv387yIL3h8c0q8JW_eurwhS6BZuDWF3Rmk",
+          "shortId": "b2",
+          "spiderX": "/"
+        }
+      },
+      "mux": {
+        "enabled": false,
+        "concurrency": -1
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    },
+    {
+      "tag": "dns-out",
+      "protocol": "dns"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "port": 53,
+        "outboundTag": "dns-out"
+      },
+      {
+        "type": "field",
+        "port": "443",
+        "network": "udp",
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "ip": [
+          "geoip:private"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "domain": [
+          "geosite:private"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "ip": [
+          "geoip:cn"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "domain": [
+          "geosite:cn",
+          "domain:googleapis.cn",
+          "domain:gstatic.com"
+        ]
+      },
+      {
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}

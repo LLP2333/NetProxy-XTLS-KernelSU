@@ -8,8 +8,10 @@ Intercepts all traffic via iptables TPROXY + dokodemo-door inbound, supporting T
 
 - Bundled Xray-core Android arm64 binary.
 - Hijacks all TCP/UDP traffic to Xray through iptables mangle table TPROXY.
-- Built-in `geoip.dat` and `geosite.dat` for Xray routing rules.
-- CLI for service control, Xray config validation, and log viewing.
+- Built-in `geoip.dat` / `geosite.dat`, with optional online refresh before Xray is stopped.
+- Xray version is logged to `service.log` on start; `xray.log` tail is appended on startup failure for easy debugging.
+- Module upgrades **preserve** existing `bin/xray`, `geoip.dat`, and `geosite.dat` if you've replaced them manually.
+- CLI for service control, Xray config validation, log viewing, and geo data updates.
 
 ## Module Layout
 
@@ -108,7 +110,16 @@ su -c '/data/adb/modules/netproxy/scripts/cli service status'
 su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
 su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy/scripts/cli geo status'
+su -c '/data/adb/modules/netproxy/scripts/cli geo update'
 ```
+
+## Updating geoip / geosite
+
+- **Auto refresh before stop**: When the service is stopped or restarted, it first downloads the latest `geoip.dat` / `geosite.dat` while the proxy is still active (better connectivity). Download → sha256 verification → atomic replace is handled in one script. Failures only print a warning and never block the stop flow.
+- **Manual**: `cli geo update` or `cli geo update geoip` / `cli geo update geosite`.
+- **Disable auto refresh**: set `GEO_UPDATE_ON_STOP=0` in `module.conf`.
+- **Change source**: edit `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL` in `module.conf`. Defaults to [`Loyalsoldier/v2ray-rules-dat`](https://github.com/Loyalsoldier/v2ray-rules-dat), same as the official Xray-install.
 
 ## Updating Xray
 
@@ -123,6 +134,8 @@ Place the files from the release archive into the corresponding module paths:
 - `xray` -> `src/module/bin/xray`
 - `geoip.dat` -> `src/module/config/xray/geoip.dat`
 - `geosite.dat` -> `src/module/config/xray/geosite.dat`
+
+> Tip: if you manually replace `/data/adb/modules/netproxy/bin/xray` on an installed device, re-flashing the module **will not** overwrite that file (same for `geoip.dat` / `geosite.dat`). Delete the file before re-flashing if you want the module-bundled version back.
 
 ## References
 

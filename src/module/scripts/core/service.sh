@@ -13,11 +13,14 @@ readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
 readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
+readonly GEO_UPDATE_SCRIPT="$MODDIR/scripts/core/geo_update.sh"
 
 # SIGTERM 等待超时（秒），超时后升级为 SIGKILL
 readonly KILL_TIMEOUT=5
 # 启动后等待进程存活的检查次数（每次间隔 1 秒）
 readonly STARTUP_CHECK_COUNT=3
+# 启动失败时随同错误日志附带的 xray.log 末尾行数
+readonly XRAY_LOG_TAIL_LINES=20
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -57,6 +60,36 @@ verify_environment() {
 }
 
 #######################################
+# 记录 Xray 版本信息到 service.log
+# `xray version` 通常输出 3 行，全部记录便于排查
+#######################################
+log_xray_version() {
+  local line
+  if [ ! -x "$XRAY_BIN" ]; then
+    log "WARN" "Xray 二进制不可执行: $XRAY_BIN"
+    return 1
+  fi
+
+  "$XRAY_BIN" version 2> /dev/null | while IFS= read -r line; do
+    [ -n "$line" ] && log "INFO" "Xray 版本: $line"
+  done
+}
+
+#######################################
+# 启动失败时把 xray.log 末尾几行追加到 service.log
+# 方便用户只看一处日志就能定位问题
+#######################################
+log_xray_tail() {
+  [ -f "$XRAY_LOG_FILE" ] || return 0
+
+  log "ERROR" "—— xray.log 末尾 $XRAY_LOG_TAIL_LINES 行 ——"
+  tail -n "$XRAY_LOG_TAIL_LINES" "$XRAY_LOG_FILE" 2> /dev/null | while IFS= read -r line; do
+    [ -n "$line" ] && log "ERROR" "  $line"
+  done
+  log "ERROR" "—— xray.log 末尾结束 ——"
+}
+
+#######################################
 # 等待进程存活确认
 # 连续检查 $STARTUP_CHECK_COUNT 次（每次 1 秒），
 # 如果进程提前退出则认为启动失败
@@ -88,6 +121,8 @@ do_start() {
     return 0
   fi
 
+  log_xray_version
+
   log "INFO" "Xray 配置文件: $XRAY_CONFIG"
   log "INFO" "Xray 资源目录: $XRAY_DIR"
   log "INFO" "正在启动 Xray 进程..."
@@ -101,6 +136,7 @@ do_start() {
   new_pid=$!
 
   if ! wait_for_process "$new_pid"; then
+    log_xray_tail
     die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
   fi
 
@@ -116,6 +152,34 @@ do_start() {
 }
 
 #######################################
+# 停止前尝试在线更新 geoip / geosite
+# 此时代理仍在运行，下载更稳定；失败仅警告，绝不阻塞 stop
+#######################################
+maybe_update_geo_before_stop() {
+  local enabled pid
+
+  enabled="$(read_conf "$MODULE_CONF" "GEO_UPDATE_ON_STOP" "1")"
+  if [ "$enabled" != "1" ]; then
+    return 0
+  fi
+
+  pid="$(get_pid "$XRAY_BIN")"
+  if [ -z "$pid" ]; then
+    log "INFO" "Xray 未运行，跳过 geo 更新"
+    return 0
+  fi
+
+  if [ ! -x "$GEO_UPDATE_SCRIPT" ] && [ ! -f "$GEO_UPDATE_SCRIPT" ]; then
+    log "WARN" "geo-update 脚本不存在，跳过: $GEO_UPDATE_SCRIPT"
+    return 0
+  fi
+
+  log "INFO" "停止 Xray 前尝试更新 geo 数据..."
+  # 失败 / 超时都不阻塞停止流程
+  sh "$GEO_UPDATE_SCRIPT" all || log "WARN" "geo 更新失败，继续停止 Xray"
+}
+
+#######################################
 # 停止服务
 # 先清理 iptables 规则（即使 Xray 未运行也要清理，
 # 防止残留规则导致网络异常），再停止 Xray 进程
@@ -125,6 +189,8 @@ do_stop() {
 
   log "INFO" "========== 开始停止 Xray 服务 =========="
   verify_environment stop
+
+  maybe_update_geo_before_stop
 
   if [ -f "$TPROXY_SCRIPT" ]; then
     "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true

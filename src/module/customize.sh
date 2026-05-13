@@ -24,11 +24,17 @@ readonly MANIFEST="$TMPDIR/netproxy_manifest.txt"
 
 PROXY_WAS_RUNNING=false
 
-# 升级时保留的用户配置文件（相对于模块根目录）
-# 这些文件在升级安装时不会被新版本覆盖
+# 升级时保留的用户/资产文件（相对于模块根目录）
+# 这些文件在升级安装时：若 LIVE_DIR 已存在则不覆盖
+#   - 用户配置：避免被刷回模板
+#   - xray 二进制：用户自行替换的新版本不被回滚
+#   - geo 数据：服务运行时 geo_update.sh 拉到的新版本不被回滚
 readonly PRESERVE_USER_FILES="
     config/module.conf
     config/xray/config.json
+    bin/xray
+    config/xray/geoip.dat
+    config/xray/geosite.dat
 "
 
 # 需要设置可执行权限的文件
@@ -37,6 +43,7 @@ readonly EXECUTABLE_FILES="
     action.sh
     scripts/cli
     scripts/core/service.sh
+    scripts/core/geo_update.sh
     scripts/network/tproxy.sh
 "
 
@@ -200,9 +207,9 @@ sync_to_live() {
   fi
 
   # ── 阶段 1/2: 将清单内的新文件复制到运行时目录 ──
-  # 跳过运行时目录（logs/trash）和用户配置文件
+  # 跳过运行时目录（logs/trash）和已存在的用户/资产文件
   print_step "更新模块文件..."
-  local updated=0
+  local updated=0 preserved=0
   while IFS= read -r rel; do
     is_runtime_path "$rel" && continue
 
@@ -210,6 +217,8 @@ sync_to_live() {
     local dst="$LIVE_DIR/$rel"
 
     if is_preserved_file "$rel" && [ -f "$dst" ]; then
+      preserved=$((preserved + 1))
+      print_ok "保留现有: $rel"
       continue
     fi
 
@@ -218,7 +227,7 @@ sync_to_live() {
       updated=$((updated + 1))
     fi
   done < "$MANIFEST"
-  print_ok "已更新 $updated 个文件"
+  print_ok "已更新 $updated 个文件，保留 $preserved 个用户文件"
 
   # ── 阶段 2/2: 将不在新清单中的旧文件移至 trash ──
   # 确保旧版本残留文件不会干扰新版本运行
