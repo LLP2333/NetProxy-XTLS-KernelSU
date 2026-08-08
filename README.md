@@ -76,6 +76,20 @@ su -c '/data/adb/modules/netproxy/scripts/cli xray test'
 su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 ```
 
+### Google Play downloads
+
+Keep Google domain and IP rules before `geosite:cn` / `geoip:cn` direct rules.
+Otherwise Android connectivity checks or Play download CDN traffic can be
+classified as direct traffic even though the Play Store UI itself works.
+
+Use independent DNS fallbacks for non-CN domains. A single DoH upstream failure
+can make Android mark the network as unvalidated and leave Play downloads
+pending.
+
+Module upgrades preserve the installed Xray config. After changing the bundled
+template, update `/data/adb/modules/netproxy/config/xray/config.json` explicitly
+and restart the service.
+
 After that you can simply reboot — the module defaults to `AUTO_START=1` and will start automatically on boot. To manually toggle the service, open the module page in KernelSU / Magisk / APatch and tap the NetProxy "Action" button.
 
 ## TProxy Overview

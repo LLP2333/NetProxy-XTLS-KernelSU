@@ -5,6 +5,11 @@
     "loglevel": "warning"
   },
   "dns": {
+    "hosts": {
+      "dns.google": "8.8.8.8"
+    },
+    "serveStale": true,
+    "serveExpiredTTL": 86400,
     "servers": [
       {
         "address": "223.5.5.5",
@@ -24,8 +29,14 @@
           "geoip:cn"
         ]
       },
-      "8.8.8.8",
-      "1.1.1.1"
+      {
+        "address": "https://8.8.8.8/dns-query",
+        "timeoutMs": 2500
+      },
+      {
+        "address": "https://1.1.1.1/dns-query",
+        "timeoutMs": 2500
+      }
     ],
     "queryStrategy": "UseIPv4"
   },
@@ -88,6 +99,22 @@
       {
         "port": 53,
         "outboundTag": "dns-out"
+      },
+      {
+        "domain": [
+          "geosite:google",
+          "domain:googleapis.cn",
+          "domain:gstatic.com",
+          "domain:gvt1.com",
+          "domain:googleusercontent.com"
+        ],
+        "outboundTag": "proxy"
+      },
+      {
+        "ip": [
+          "geoip:google"
+        ],
+        "outboundTag": "proxy"
       },
       {
         "domain": [
