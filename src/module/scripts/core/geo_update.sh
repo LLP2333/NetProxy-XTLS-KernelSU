@@ -3,7 +3,7 @@
 # 用法: geo_update.sh [geoip|geosite|all]
 #
 # 设计原则:
-#   1. 失败只警告，不退出非零（被 service.sh stop 调用时不能阻塞停止流程）
+#   1. 任意一项更新成功即返回 0，全部失败返回 1；失败不影响已有文件
 #   2. 下载到临时文件 → sha256 校验 → 原子 mv 替换，保证旧文件不会损坏
 #   3. 纯 POSIX sh + curl + sha256sum/busybox sha256sum，无 bash 依赖
 

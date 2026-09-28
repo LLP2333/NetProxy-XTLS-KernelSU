@@ -13,7 +13,6 @@ readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
 readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
-readonly GEO_UPDATE_SCRIPT="$MODDIR/scripts/core/geo_update.sh"
 
 # SIGTERM 等待超时（秒），超时后升级为 SIGKILL
 readonly KILL_TIMEOUT=5
@@ -152,34 +151,6 @@ do_start() {
 }
 
 #######################################
-# 停止前尝试在线更新 geoip / geosite
-# 此时代理仍在运行，下载更稳定；失败仅警告，绝不阻塞 stop
-#######################################
-maybe_update_geo_before_stop() {
-  local enabled pid
-
-  enabled="$(read_conf "$MODULE_CONF" "GEO_UPDATE_ON_STOP" "1")"
-  if [ "$enabled" != "1" ]; then
-    return 0
-  fi
-
-  pid="$(get_pid "$XRAY_BIN")"
-  if [ -z "$pid" ]; then
-    log "INFO" "Xray 未运行，跳过 geo 更新"
-    return 0
-  fi
-
-  if [ ! -x "$GEO_UPDATE_SCRIPT" ] && [ ! -f "$GEO_UPDATE_SCRIPT" ]; then
-    log "WARN" "geo-update 脚本不存在，跳过: $GEO_UPDATE_SCRIPT"
-    return 0
-  fi
-
-  log "INFO" "停止 Xray 前尝试更新 geo 数据..."
-  # 失败 / 超时都不阻塞停止流程
-  sh "$GEO_UPDATE_SCRIPT" all || log "WARN" "geo 更新失败，继续停止 Xray"
-}
-
-#######################################
 # 停止服务
 # 先清理 iptables 规则（即使 Xray 未运行也要清理，
 # 防止残留规则导致网络异常），再停止 Xray 进程
@@ -189,8 +160,6 @@ do_stop() {
 
   log "INFO" "========== 开始停止 Xray 服务 =========="
   verify_environment stop
-
-  maybe_update_geo_before_stop
 
   if [ -f "$TPROXY_SCRIPT" ]; then
     "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true

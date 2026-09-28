@@ -8,7 +8,7 @@
 
 - 内置 Xray-core Android arm64 二进制。
 - 通过 iptables mangle 表 TPROXY 劫持全部 TCP/UDP 流量到 Xray。
-- 内置 `geoip.dat` 和 `geosite.dat`，并支持停止 Xray 前自动在线更新。
+- 内置 `geoip.dat` 和 `geosite.dat`，并支持在 WebUI 或 CLI 中一键在线更新。
 - 启动时把 Xray 版本写入 `service.log`；启动失败自动附带 `xray.log` 末尾日志。
 - 升级模块时**自动保留**已存在的 `bin/xray` / `geoip.dat` / `geosite.dat`，方便用户自行替换不被回滚。
 - CLI 支持服务启停、Xray 配置校验、日志查看、geo 数据更新。
@@ -30,7 +30,7 @@ src/module/
 │  ├─ cli                     # CLI 入口（service/xray/geo 子命令）
 │  ├─ core/
 │  │  ├─ service.sh           # 服务启停核心逻辑
-│  │  └─ geo_update.sh        # 在线更新 geoip/geosite（停止前自动调用）
+│  │  └─ geo_update.sh        # 在线更新 geoip/geosite
 │  ├─ network/
 │  │  └─ tproxy.sh            # iptables TPROXY 规则管理
 │  └─ utils/
@@ -117,9 +117,9 @@ su -c '/data/adb/modules/netproxy/scripts/cli geo update'
 
 ## 更新 geoip / geosite
 
-- **停止 Xray 前自动更新**：服务在执行 `stop` / `restart` 时会先在线拉取最新的 `geoip.dat` 和 `geosite.dat`（此时代理仍在运行，下载更稳定）。下载、sha256 校验、原子替换在一个脚本里完成，失败只警告不阻塞停止流程。
-- **手动更新**：执行 `cli geo update` 或 `cli geo update geoip` / `cli geo update geosite`。
-- **关闭自动更新**：在 `module.conf` 中设置 `GEO_UPDATE_ON_STOP=0`。
+- **WebUI**：在状态页点击「更新 geoip / geosite」。
+- **CLI**：执行 `cli geo update` 或 `cli geo update geoip` / `cli geo update geosite`。
+- 下载、sha256 校验、原子替换在一个脚本里完成，失败不影响现有文件。更新后重启服务生效。
 - **更换数据源**：修改 `module.conf` 中的 `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL`，默认使用 [`Loyalsoldier/v2ray-rules-dat`](https://github.com/Loyalsoldier/v2ray-rules-dat)，与官方 Xray-install 一致。
 
 ## 更新 Xray

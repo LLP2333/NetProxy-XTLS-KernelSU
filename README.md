@@ -8,7 +8,7 @@ Intercepts all traffic via iptables TPROXY + dokodemo-door inbound, supporting T
 
 - Bundled Xray-core Android arm64 binary.
 - Hijacks all TCP/UDP traffic to Xray through iptables mangle table TPROXY.
-- Built-in `geoip.dat` / `geosite.dat`, with optional online refresh before Xray is stopped.
+- Built-in `geoip.dat` / `geosite.dat`, with one-tap online refresh from the WebUI or CLI.
 - Xray version is logged to `service.log` on start; `xray.log` tail is appended on startup failure for easy debugging.
 - Module upgrades **preserve** existing `bin/xray`, `geoip.dat`, and `geosite.dat` if you've replaced them manually.
 - CLI for service control, Xray config validation, log viewing, and geo data updates.
@@ -130,9 +130,9 @@ su -c '/data/adb/modules/netproxy/scripts/cli geo update'
 
 ## Updating geoip / geosite
 
-- **Auto refresh before stop**: When the service is stopped or restarted, it first downloads the latest `geoip.dat` / `geosite.dat` while the proxy is still active (better connectivity). Download → sha256 verification → atomic replace is handled in one script. Failures only print a warning and never block the stop flow.
-- **Manual**: `cli geo update` or `cli geo update geoip` / `cli geo update geosite`.
-- **Disable auto refresh**: set `GEO_UPDATE_ON_STOP=0` in `module.conf`.
+- **WebUI**: tap "更新 geoip / geosite" on the status page.
+- **CLI**: `cli geo update` or `cli geo update geoip` / `cli geo update geosite`.
+- Download → sha256 verification → atomic replace is handled in one script; failures leave the existing files untouched. Restart the service to apply.
 - **Change source**: edit `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL` in `module.conf`. Defaults to [`Loyalsoldier/v2ray-rules-dat`](https://github.com/Loyalsoldier/v2ray-rules-dat), same as the official Xray-install.
 
 ## Updating Xray

@@ -22,7 +22,6 @@ APP_PROXY_LIST=""
 
 XRAY_CONFIG="/data/adb/modules/netproxy/config/xray/config.json"
 
-GEO_UPDATE_ON_STOP=1
 GEO_UPDATE_GEOIP_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 GEO_UPDATE_GEOSITE_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
 GEO_UPDATE_TIMEOUT=60
@@ -53,8 +52,7 @@ bin/xray run -config "$XRAY_CONFIG"
 
 ## geo 数据更新
 
-- `GEO_UPDATE_ON_STOP=1`：停止服务前（代理仍在运行时）在线更新 geoip / geosite，失败只记录警告，不影响停止。
 - `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL`：下载地址。
 - `GEO_UPDATE_TIMEOUT`：单个文件的下载超时（秒）。
 
-也可以随时手动执行 `cli geo update`。
+在 WebUI 状态页点击「更新 geoip / geosite」，或执行 `cli geo update` 手动更新；更新后重启服务生效。

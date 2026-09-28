@@ -21,7 +21,7 @@ readonly GEOIP_FILE="$XRAY_DIR/geoip.dat"
 readonly GEOSITE_FILE="$XRAY_DIR/geosite.dat"
 
 # 允许通过 cli conf 读写的 module.conf 键（均为 0/1 开关）
-readonly CONF_SWITCH_KEYS="AUTO_START GEO_UPDATE_ON_STOP PROXY_IPV6 PROXY_HOTSPOT"
+readonly CONF_SWITCH_KEYS="AUTO_START PROXY_IPV6 PROXY_HOTSPOT"
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -145,11 +145,10 @@ cmd_service_status_json() {
   tproxy_active && tproxy="true"
   config="$(read_xray_config)"
 
-  printf '{"running":%s,"pid":"%s","uptime":%s,"version":"%s","config":"%s","tproxy":%s,"tproxy_port":"%s","auto_start":"%s","geo_update_on_stop":"%s","proxy_ipv6":"%s","proxy_hotspot":"%s","app_proxy_mode":"%s"}\n' \
+  printf '{"running":%s,"pid":"%s","uptime":%s,"version":"%s","config":"%s","tproxy":%s,"tproxy_port":"%s","auto_start":"%s","proxy_ipv6":"%s","proxy_hotspot":"%s","app_proxy_mode":"%s"}\n' \
     "$running" "$pid" "${uptime:-0}" "$(json_escape "$version")" "$(json_escape "$config")" "$tproxy" \
     "$(json_escape "$(read_conf "$MODULE_CONF" "TPROXY_PORT" "12345")")" \
     "$(read_conf "$MODULE_CONF" "AUTO_START" "1")" \
-    "$(read_conf "$MODULE_CONF" "GEO_UPDATE_ON_STOP" "1")" \
     "$(read_conf "$MODULE_CONF" "PROXY_IPV6" "1")" \
     "$(read_conf "$MODULE_CONF" "PROXY_HOTSPOT" "1")" \
     "$(json_escape "$(read_conf "$MODULE_CONF" "APP_PROXY_MODE" "off")")"

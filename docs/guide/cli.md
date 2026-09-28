@@ -80,4 +80,4 @@ su -c '/data/adb/modules/netproxy/scripts/cli conf get PROXY_IPV6'
 su -c '/data/adb/modules/netproxy/scripts/cli conf set PROXY_IPV6 0'
 ```
 
-可用的键：`AUTO_START`、`GEO_UPDATE_ON_STOP`、`PROXY_IPV6`、`PROXY_HOTSPOT`。端口、分应用列表等其他设置请直接编辑 `module.conf`，见 [module.conf](../config/module.md)。透明代理相关设置修改后需要重启服务。
+可用的键：`AUTO_START`、`PROXY_IPV6`、`PROXY_HOTSPOT`。端口、分应用列表等其他设置请直接编辑 `module.conf`，见 [module.conf](../config/module.md)。透明代理相关设置修改后需要重启服务。
