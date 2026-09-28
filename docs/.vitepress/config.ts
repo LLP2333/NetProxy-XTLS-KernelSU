@@ -58,7 +58,7 @@ export default defineConfig({
           items: [
             { text: 'module.conf', link: '/config/module' },
             { text: 'Xray 配置', link: '/config/xray' },
-            { text: 'tproxy.conf', link: '/config/tproxy' },
+            { text: '透明代理', link: '/config/tproxy' },
             { text: '路由与 DNS', link: '/config/routing' }
           ]
         }

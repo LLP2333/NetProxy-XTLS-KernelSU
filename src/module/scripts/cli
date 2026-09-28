@@ -20,6 +20,9 @@ readonly GEO_UPDATE_SCRIPT="$SCRIPTS_DIR/core/geo_update.sh"
 readonly GEOIP_FILE="$XRAY_DIR/geoip.dat"
 readonly GEOSITE_FILE="$XRAY_DIR/geosite.dat"
 
+# 允许通过 cli conf 读写的 module.conf 键（均为 0/1 开关）
+readonly CONF_SWITCH_KEYS="AUTO_START GEO_UPDATE_ON_STOP PROXY_IPV6 PROXY_HOTSPOT"
+
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
 
@@ -83,7 +86,7 @@ read_xray_config() {
 show_service_help() {
   cat << EOF
 用法:
-  cli service status                  查看服务状态
+  cli service status [--json]         查看服务状态
   cli service start                   启动服务
   cli service stop                    停止服务
   cli service restart                 重启服务
@@ -97,8 +100,18 @@ show_xray_help() {
 用法:
   cli xray config                     查看当前 Xray 配置路径
   cli xray show                       输出当前 Xray 配置内容
-  cli xray test                       使用 Xray 校验当前配置
+  cli xray test [文件]                使用 Xray 校验配置（默认当前配置）
+  cli xray apply <文件>               校验通过后替换当前配置（旧配置备份为 .bak）
   cli xray version                    查看 Xray 版本
+EOF
+}
+
+show_conf_help() {
+  cat << EOF
+用法:
+  cli conf get <键>                   读取 module.conf 开关
+  cli conf set <键> <0|1>             修改 module.conf 开关
+可用键: $CONF_SWITCH_KEYS
 EOF
 }
 
@@ -113,8 +126,42 @@ EOF
 #######################################
 # service 命令
 #######################################
+tproxy_active() {
+  command iptables -w 100 -t mangle -nL PROXY_PREROUTING > /dev/null 2>&1
+}
+
+# 单行 JSON，供 WebUI 解析
+cmd_service_status_json() {
+  local pid running="false" uptime=0 version="" config tproxy="false"
+
+  pid="$(get_pid "$XRAY_BIN")"
+  if [ -n "$pid" ]; then
+    running="true"
+    uptime="$(get_process_uptime "$pid" || true)"
+  fi
+  if [ -x "$XRAY_BIN" ]; then
+    version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
+  fi
+  tproxy_active && tproxy="true"
+  config="$(read_xray_config)"
+
+  printf '{"running":%s,"pid":"%s","uptime":%s,"version":"%s","config":"%s","tproxy":%s,"tproxy_port":"%s","auto_start":"%s","geo_update_on_stop":"%s","proxy_ipv6":"%s","proxy_hotspot":"%s","app_proxy_mode":"%s"}\n' \
+    "$running" "$pid" "${uptime:-0}" "$(json_escape "$version")" "$(json_escape "$config")" "$tproxy" \
+    "$(json_escape "$(read_conf "$MODULE_CONF" "TPROXY_PORT" "12345")")" \
+    "$(read_conf "$MODULE_CONF" "AUTO_START" "1")" \
+    "$(read_conf "$MODULE_CONF" "GEO_UPDATE_ON_STOP" "1")" \
+    "$(read_conf "$MODULE_CONF" "PROXY_IPV6" "1")" \
+    "$(read_conf "$MODULE_CONF" "PROXY_HOTSPOT" "1")" \
+    "$(json_escape "$(read_conf "$MODULE_CONF" "APP_PROXY_MODE" "off")")"
+}
+
 cmd_service_status() {
   local pid config version
+
+  if [ "${1:-}" = "--json" ]; then
+    cmd_service_status_json
+    return
+  fi
 
   section "服务状态"
   pid="$(get_pid "$XRAY_BIN")"
@@ -128,7 +175,7 @@ cmd_service_status() {
   fi
 
   config="$(read_xray_config)"
-  printf "代理模式: TUN\n"
+  printf "代理模式: TPROXY（端口 %s）\n" "$(read_conf "$MODULE_CONF" "TPROXY_PORT" "12345")"
   printf "Xray 配置: %s\n" "$config"
 
   if [ -x "$XRAY_BIN" ]; then
@@ -202,15 +249,43 @@ cmd_xray_show() {
 }
 
 cmd_xray_test() {
-  local config
+  local config="${1:-}"
 
-  config="$(read_xray_config)"
+  [ -n "$config" ] || config="$(read_xray_config)"
   [ -x "$XRAY_BIN" ] || die_cli "Xray 二进制不可执行: $XRAY_BIN"
   [ -f "$config" ] || die_cli "Xray 配置文件不存在: $config"
 
   export XRAY_LOCATION_ASSET="$XRAY_DIR"
   export XRAY_LOCATION_CONFIG="$XRAY_DIR"
   "$XRAY_BIN" run -test -config "$config"
+}
+
+# 校验候选配置 → 备份当前配置 → 原子替换
+# 先把候选复制到临时文件，因此 apply 当前配置的 .bak 也能正确回滚
+cmd_xray_apply() {
+  local candidate="${1:-}"
+  local config tmp
+
+  [ -n "$candidate" ] || die_cli "用法: cli xray apply <候选配置文件>"
+  [ -f "$candidate" ] || die_cli "候选配置文件不存在: $candidate"
+
+  config="$(read_xray_config)"
+  info "校验候选配置..."
+  cmd_xray_test "$candidate" || die_cli "候选配置校验失败，当前配置未修改"
+
+  tmp="$config.tmp.$$"
+  cp -f "$candidate" "$tmp" || die_cli "无法写入临时文件: $tmp"
+  if [ -f "$config" ] && ! cp -f "$config" "$config.bak"; then
+    rm -f "$tmp"
+    die_cli "无法备份当前配置: $config"
+  fi
+  chmod 0644 "$tmp"
+  if ! mv -f "$tmp" "$config"; then
+    rm -f "$tmp"
+    die_cli "无法替换配置文件: $config"
+  fi
+
+  info "配置已保存: ${config}（上一版备份为 $config.bak）"
 }
 
 cmd_xray_version() {
@@ -226,9 +301,53 @@ cmd_xray() {
     config | path) cmd_xray_config "$@" ;;
     show | cat) cmd_xray_show "$@" ;;
     test) cmd_xray_test "$@" ;;
+    apply) cmd_xray_apply "$@" ;;
     version | -v | --version) cmd_xray_version "$@" ;;
     help | -h | --help) show_xray_help ;;
     *) die_cli "用法错误，使用 cli xray help 查看帮助" ;;
+  esac
+}
+
+#######################################
+# conf 命令：读写 module.conf 中的开关项
+#######################################
+require_switch_key() {
+  list_contains "$CONF_SWITCH_KEYS" "$1" || die_cli "不支持的配置键: $1（可用: ${CONF_SWITCH_KEYS}）"
+}
+
+cmd_conf_get() {
+  local key="${1:-}"
+
+  [ -n "$key" ] || die_cli "用法: cli conf get <键>"
+  require_switch_key "$key"
+  read_conf "$MODULE_CONF" "$key" ""
+  printf "\n"
+}
+
+cmd_conf_set() {
+  local key="${1:-}"
+  local value="${2:-}"
+
+  [ -n "$key" ] || die_cli "用法: cli conf set <键> <0|1>"
+  require_switch_key "$key"
+  case "$value" in
+    0 | 1) ;;
+    *) die_cli "取值只能是 0 或 1: $value" ;;
+  esac
+
+  set_conf "$MODULE_CONF" "$key" "$value"
+  info "$key=$value"
+}
+
+cmd_conf() {
+  local subcmd="${1:-help}"
+  shift 2> /dev/null || true
+
+  case "$subcmd" in
+    get) cmd_conf_get "$@" ;;
+    set) cmd_conf_set "$@" ;;
+    help | -h | --help) show_conf_help ;;
+    *) die_cli "用法错误，使用 cli conf help 查看帮助" ;;
   esac
 }
 
@@ -289,10 +408,10 @@ cmd_geo() {
 #######################################
 show_help() {
   cat << EOF
-NetProxy CLI (TUN 模式)
+NetProxy CLI (TPROXY 模式)
 
 服务:
-  cli service status                  查看服务状态
+  cli service status [--json]         查看服务状态
   cli service start                   启动服务
   cli service stop                    停止服务
   cli service restart                 重启服务
@@ -302,12 +421,17 @@ NetProxy CLI (TUN 模式)
 Xray:
   cli xray config                     查看当前配置路径
   cli xray show                       输出当前配置内容
-  cli xray test                       校验当前配置
+  cli xray test [文件]                校验配置（默认当前配置）
+  cli xray apply <文件>               校验后替换当前配置
   cli xray version                    查看 Xray 版本
 
 Geo:
   cli geo status                      查看 geoip / geosite 文件状态
   cli geo update [geoip|geosite|all]  在线更新 geo 数据（默认 all）
+
+模块设置:
+  cli conf get <键>                   读取开关（${CONF_SWITCH_KEYS}）
+  cli conf set <键> <0|1>             修改开关
 EOF
 }
 
@@ -324,8 +448,9 @@ main() {
     service) cmd_service "$@" ;;
     xray | core) cmd_xray "$@" ;;
     geo) cmd_geo "$@" ;;
+    conf) cmd_conf "$@" ;;
     help | -h | --help) show_help ;;
-    *) die_cli "未知命令组: $group，使用 cli help 查看帮助" ;;
+    *) die_cli "未知命令组: ${group}，使用 cli help 查看帮助" ;;
   esac
 }
 

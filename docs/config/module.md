@@ -6,36 +6,38 @@
 /data/adb/modules/netproxy/config/module.conf
 ```
 
+升级模块时会保留该文件。旧版本升级后文件里可能没有新增的键，缺失的键会使用下方默认值。
+
 ## 默认配置
 
 ```text
 AUTO_START=1
-GMS_FIX=0
+
+TPROXY_PORT=12345
+PROXY_IPV6=1
+PROXY_HOTSPOT=1
+HOTSPOT_INTERFACES="wlan2 ap+ swlan0 rndis+ ncm+"
+APP_PROXY_MODE=off
+APP_PROXY_LIST=""
+
 XRAY_CONFIG="/data/adb/modules/netproxy/config/xray/config.json"
+
+GEO_UPDATE_ON_STOP=1
+GEO_UPDATE_GEOIP_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
+GEO_UPDATE_GEOSITE_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
+GEO_UPDATE_TIMEOUT=60
 ```
 
 ## AUTO_START
 
-```text
-AUTO_START=1
-```
-
 - `1`：开机后自动启动 NetProxy 服务。
 - `0`：开机不自动启动，需要手动执行 `cli service start`。
 
-## GMS_FIX
+## 透明代理
 
-```text
-GMS_FIX=0
-```
-
-用于执行模块内的设备兼容性修复脚本。默认关闭。
+`TPROXY_PORT`、`PROXY_IPV6`、`PROXY_HOTSPOT`、`HOTSPOT_INTERFACES`、`APP_PROXY_MODE`、`APP_PROXY_LIST` 控制哪些流量进入 Xray，详见 [透明代理](./tproxy.md)。修改后需要重启服务。
 
 ## XRAY_CONFIG
-
-```text
-XRAY_CONFIG="/data/adb/modules/netproxy/config/xray/config.json"
-```
 
 Xray 主配置文件路径。服务启动时会执行：
 
@@ -47,4 +49,12 @@ bin/xray run -config "$XRAY_CONFIG"
 
 - 文件对 root 可读。
 - 配置中的日志路径存在或可创建。
-- `geoip.dat` 和 `geosite.dat` 仍位于 `config/xray/`，或你同步修改了 Xray asset 路径相关启动脚本。
+- `geoip.dat` 和 `geosite.dat` 仍位于 `config/xray/`。
+
+## geo 数据更新
+
+- `GEO_UPDATE_ON_STOP=1`：停止服务前（代理仍在运行时）在线更新 geoip / geosite，失败只记录警告，不影响停止。
+- `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL`：下载地址。
+- `GEO_UPDATE_TIMEOUT`：单个文件的下载超时（秒）。
+
+也可以随时手动执行 `cli geo update`。

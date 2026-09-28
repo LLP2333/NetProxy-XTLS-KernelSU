@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <!-- KernelSU 管理器提供的系统栏内边距变量 -->
+  <link rel="stylesheet" href="https://mui.kernelsu.org/internal/insets.css" />
+  <title>NetProxy Xray</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --surface-2: #eef0f3;
+      --text: #1b1d21;
+      --muted: #69707c;
+      --border: #dde1e7;
+      --accent: #2f6fed;
+      --accent-text: #ffffff;
+      --ok: #1f9d55;
+      --warn: #c27a00;
+      --danger: #d64545;
+      --code-bg: #f0f2f5;
+      --radius: 12px;
+      --inset-top: max(var(--window-inset-top, 0px), env(safe-area-inset-top, 0px));
+      --inset-bottom: max(var(--window-inset-bottom, 0px), env(safe-area-inset-bottom, 0px));
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111317;
+        --surface: #1a1d23;
+        --surface-2: #232730;
+        --text: #e6e8ec;
+        --muted: #9aa1ad;
+        --border: #2d323c;
+        --accent: #5b8cff;
+        --accent-text: #0d1117;
+        --ok: #3ecf7a;
+        --warn: #f0b429;
+        --danger: #ff6b6b;
+        --code-bg: #14171c;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Noto Sans CJK SC", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--bg);
+      padding: calc(var(--inset-top) + 12px) 16px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0 0 8px; font-size: 20px; font-weight: 650; display: flex; align-items: center; gap: 10px; }
+    .busy { margin-left: auto; font-size: 13px; font-weight: 500; color: var(--muted); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+    .dot.on { background: var(--ok); }
+    .dot.off { background: var(--danger); }
+    nav { display: flex; gap: 4px; }
+    nav button {
+      flex: 1; background: none; border: 0; color: var(--muted);
+      padding: 10px 0; font: inherit; font-weight: 600;
+      border-bottom: 2px solid transparent; cursor: pointer;
+    }
+    nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+    main { padding: 16px 16px calc(var(--inset-bottom) + 24px); max-width: 860px; margin: 0 auto; }
+    section[hidden] { display: none; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px;
+    }
+    .card h2 { margin: 0 0 10px; font-size: 15px; font-weight: 650; }
+    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 14px; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; overflow-wrap: anywhere; }
+    .state-ok { color: var(--ok); font-weight: 600; }
+    .state-off { color: var(--danger); font-weight: 600; }
+    .state-warn { color: var(--warn); font-weight: 600; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .row + .row { margin-top: 10px; }
+    button.btn {
+      font: inherit; font-weight: 600; font-size: 14px;
+      padding: 9px 14px; border-radius: 10px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+    }
+    button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+    button.btn.danger { color: var(--danger); }
+    button.btn.confirming { background: var(--danger); border-color: var(--danger); color: #fff; }
+    button.btn:disabled { opacity: .45; cursor: default; }
+    .grow { flex: 1 1 auto; }
+    .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+    .switch-row + .switch-row { border-top: 1px solid var(--border); }
+    .switch-row small { display: block; color: var(--muted); font-size: 12.5px; }
+    input[type=checkbox].sw {
+      appearance: none; -webkit-appearance: none; flex: none;
+      width: 44px; height: 26px; border-radius: 13px; background: var(--border);
+      position: relative; cursor: pointer; transition: background .15s;
+    }
+    input[type=checkbox].sw::after {
+      content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px;
+      border-radius: 50%; background: #fff; transition: transform .15s;
+    }
+    input[type=checkbox].sw:checked { background: var(--accent); }
+    input[type=checkbox].sw:checked::after { transform: translateX(18px); }
+    input[type=checkbox].sw:disabled { opacity: .5; }
+    pre, textarea {
+      font: 12.5px/1.5 ui-monospace, "JetBrains Mono", "Roboto Mono", Menlo, monospace;
+    }
+    pre.out {
+      margin: 10px 0 0; padding: 10px 12px; background: var(--code-bg);
+      border: 1px solid var(--border); border-radius: 10px;
+      white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto;
+    }
+    pre.out:empty { display: none; }
+    textarea#editor {
+      width: 100%; min-height: 60vh; resize: vertical; padding: 10px 12px;
+      background: var(--code-bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      white-space: pre; overflow: auto; tab-size: 2;
+    }
+    textarea#editor:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; overflow-wrap: anywhere; }
+    .msg { font-size: 13px; margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.err { color: var(--danger); }
+    .msg.ok { color: var(--ok); }
+    .msg.warn { color: var(--warn); }
+    select, input[type=number] {
+      font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 10px;
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    }
+    input[type=number] { width: 90px; }
+    label.inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+    #log-view { max-height: none; min-height: 50vh; }
+    .banner {
+      background: var(--surface-2); border: 1px solid var(--warn); color: var(--warn);
+      border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 14px;
+    }
+    #toast {
+      position: fixed; left: 50%; bottom: calc(var(--inset-bottom) + 24px);
+      transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none;
+      background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
+      font-size: 14px; max-width: calc(100vw - 32px); transition: opacity .2s, transform .2s; z-index: 20;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      animation: spin .8s linear infinite; vertical-align: -2px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span id="status-dot" class="dot"></span>NetProxy Xray<span id="op-busy" class="busy" hidden><span class="spinner"></span> <span id="op-busy-text"></span></span></h1>
+    <nav>
+      <button type="button" data-tab="status" class="active">状态</button>
+      <button type="button" data-tab="config">配置</button>
+      <button type="button" data-tab="logs">日志</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="env-banner" class="banner" hidden>未检测到 KernelSU WebUI 环境，命令无法执行。请在 KernelSU 管理器的模块页面中打开。</div>
+
+    <!-- ───────────── 状态 ───────────── -->
+    <section id="tab-status">
+      <div class="card">
+        <h2>服务</h2>
+        <dl class="kv">
+          <dt>运行状态</dt><dd id="st-running">检测中…</dd>
+          <dt>透明代理</dt><dd id="st-tproxy">-</dd>
+          <dt>PID</dt><dd id="st-pid">-</dd>
+          <dt>运行时间</dt><dd id="st-uptime">-</dd>
+          <dt>内核版本</dt><dd id="st-version">-</dd>
+          <dt>配置文件</dt><dd id="st-config">-</dd>
+        </dl>
+        <div class="row" style="margin-top:14px">
+          <button type="button" class="btn primary" data-op="start">启动</button>
+          <button type="button" class="btn" data-op="restart">重启</button>
+          <button type="button" class="btn danger" data-op="stop">停止</button>
+        </div>
+        <pre id="op-output" class="out"></pre>
+      </div>
+
+      <div class="card">
+        <h2>模块设置</h2>
+        <div class="switch-row">
+          <div>开机自动启动<small>AUTO_START</small></div>
+          <input type="checkbox" class="sw" data-conf="AUTO_START" />
+        </div>
+        <div class="switch-row">
+          <div>停止前更新 geo 数据<small>GEO_UPDATE_ON_STOP · 停止服务时会多花一些时间</small></div>
+          <input type="checkbox" class="sw" data-conf="GEO_UPDATE_ON_STOP" />
+        </div>
+        <div class="switch-row">
+          <div>代理 IPv6<small>PROXY_IPV6 · 重启服务后生效</small></div>
+          <input type="checkbox" class="sw" data-conf="PROXY_IPV6" />
+        </div>
+        <div class="switch-row">
+          <div>代理热点 / USB 共享<small>PROXY_HOTSPOT · 重启服务后生效</small></div>
+          <input type="checkbox" class="sw" data-conf="PROXY_HOTSPOT" />
+        </div>
+        <p class="hint" id="st-app-mode"></p>
+      </div>
+
+      <div class="card">
+        <h2>Geo 数据</h2>
+        <div class="row">
+          <button type="button" class="btn" id="geo-refresh">刷新状态</button>
+          <button type="button" class="btn" id="geo-update">立即更新</button>
+        </div>
+        <pre id="geo-output" class="out"></pre>
+      </div>
+    </section>
+
+    <!-- ───────────── 配置 ───────────── -->
+    <section id="tab-config" hidden>
+      <div class="card">
+        <div class="row">
+          <button type="button" class="btn" id="cfg-reload">重新加载</button>
+          <button type="button" class="btn" id="cfg-format">格式化</button>
+          <button type="button" class="btn" id="cfg-test">校验</button>
+          <span class="grow"></span>
+          <button type="button" class="btn danger" id="cfg-restore">恢复上一版</button>
+        </div>
+        <div class="row">
+          <button type="button" class="btn" id="cfg-save">保存</button>
+          <button type="button" class="btn primary" id="cfg-save-restart">保存并重启</button>
+          <span id="cfg-dirty" class="hint" hidden>● 有未保存的修改</span>
+        </div>
+        <p class="hint" id="cfg-path"></p>
+        <div id="cfg-msg" class="msg"></div>
+      </div>
+      <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off"></textarea>
+      <p class="hint">保存时会先用 xray run -test 校验，通过后才替换配置；上一版保存在 config.json.bak。</p>
+    </section>
+
+    <!-- ───────────── 日志 ───────────── -->
+    <section id="tab-logs" hidden>
+      <div class="card">
+        <div class="row">
+          <select id="log-target">
+            <option value="service">service.log</option>
+            <option value="xray">xray.log</option>
+          </select>
+          <input type="number" id="log-lines" value="200" min="10" max="5000" step="50" aria-label="行数" />
+          <button type="button" class="btn" id="log-refresh">刷新</button>
+          <label class="inline"><input type="checkbox" id="log-auto" /> 自动刷新</label>
+        </div>
+        <pre id="log-view" class="out"></pre>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" role="status"></div>
+
+  <script>
+  (() => {
+    'use strict'
+
+    const MODDIR = '/data/adb/modules/netproxy'
+    const CLI = `sh ${MODDIR}/scripts/cli`
+    const TMP_DIR = '/data/local/tmp/netproxy-webui'
+    const CANDIDATE = `${TMP_DIR}/config.candidate.json`
+    // module.conf 缺省时 tproxy.sh 使用的端口
+    const DEFAULT_TPROXY_PORT = 12345
+    const STATUS_POLL_MS = 5000
+    const LOG_POLL_MS = 3000
+
+    const $ = sel => document.querySelector(sel)
+    const $$ = sel => Array.from(document.querySelectorAll(sel))
+
+    // ───────── KernelSU exec 桥接 ─────────
+    const inKsu = typeof window.ksu !== 'undefined' && typeof window.ksu.exec === 'function'
+    let execSeq = 0
+
+    function exec(cmd) {
+      return new Promise(resolve => {
+        if (!inKsu) return resolve({ code: -1, out: '', err: '非 KernelSU 环境' })
+        const cb = `__netproxy_exec_${Date.now()}_${execSeq++}`
+        window[cb] = (code, out, err) => {
+          delete window[cb]
+          resolve({ code, out: out || '', err: err || '' })
+        }
+        try {
+          window.ksu.exec(cmd, '{}', cb)
+        } catch (e) {
+          delete window[cb]
+          resolve({ code: -1, out: '', err: String(e && e.message || e) })
+        }
+      })
+    }
+
+    const shq = v => `'${String(v).replace(/'/g, `'"'"'`)}'`
+    const cli = args => exec(`${CLI} ${args.map(shq).join(' ')} 2>&1`)
+    // cli 的 info/warn 走 stdout、die_cli 走 stderr，合并后按顺序展示
+    const combined = r => (r.out + (r.err ? '\n' + r.err : '')).replace(/\x1b\[[0-9;]*m/g, '').trim()
+
+    function toBase64(text) {
+      const bytes = new TextEncoder().encode(text)
+      let bin = ''
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+      }
+      return btoa(bin)
+    }
+
+    // 分块写入文件：每块长度为 4 的倍数，保证 base64 可独立解码
+    async function writeFile(path, text) {
+      const b64 = toBase64(text)
+      const CHUNK = 48 * 1024
+      let r = await exec(`mkdir -p ${shq(TMP_DIR)} && : > ${shq(path)}`)
+      if (r.code !== 0) return r
+      for (let i = 0; i < b64.length; i += CHUNK) {
+        r = await exec(`printf '%s' ${shq(b64.slice(i, i + CHUNK))} | base64 -d >> ${shq(path)}`)
+        if (r.code !== 0) return r
+      }
+      return { code: 0, out: '', err: '' }
+    }
+
+    // ───────── 通用 UI ─────────
+    let toastTimer
+    function toast(text) {
+      const el = $('#toast')
+      el.textContent = text
+      el.classList.add('show')
+      clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2600)
+    }
+
+    function setMsg(el, text, kind) {
+      el.textContent = text || ''
+      el.className = 'msg' + (kind ? ' ' + kind : '')
+    }
+
+    // 危险操作：第一次点击进入确认态，3 秒内再次点击才执行
+    function confirmClick(btn, label, action) {
+      const original = btn.textContent
+      let armed = false, timer
+      btn.addEventListener('click', () => {
+        if (!armed) {
+          armed = true
+          btn.textContent = label
+          btn.classList.add('confirming')
+          timer = setTimeout(() => { armed = false; btn.textContent = original; btn.classList.remove('confirming') }, 3000)
+          return
+        }
+        clearTimeout(timer)
+        armed = false
+        btn.textContent = original
+        btn.classList.remove('confirming')
+        action()
+      })
+    }
+
+    let busy = false
+    const busyButtons = () => $$('button.btn, input.sw')
+    async function withBusy(label, fn) {
+      if (busy) return
+      busy = true
+      busyButtons().forEach(b => { b.disabled = true })
+      $('#op-busy').hidden = false
+      $('#op-busy-text').textContent = label
+      try {
+        return await fn()
+      } finally {
+        busy = false
+        busyButtons().forEach(b => { b.disabled = false })
+        $('#op-busy').hidden = true
+      }
+    }
+
+    function formatUptime(sec) {
+      sec = Number(sec) || 0
+      if (sec <= 0) return '-'
+      const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600)
+      const m = Math.floor(sec % 3600 / 60), s = sec % 60
+      if (d) return `${d} 天 ${h} 小时 ${m} 分`
+      if (h) return `${h} 小时 ${m} 分`
+      if (m) return `${m} 分 ${s} 秒`
+      return `${s} 秒`
+    }
+
+    // ───────── 状态 ─────────
+    let status = null
+
+    async function refreshStatus() {
+      const r = await exec(`${CLI} service status --json 2>/dev/null`)
+      try {
+        status = JSON.parse(r.out.trim().split('\n').pop())
+      } catch {
+        status = null
+        $('#st-running').innerHTML = '<span class="state-warn">无法读取状态</span>'
+        $('#status-dot').className = 'dot'
+        return
+      }
+      const s = status
+      $('#status-dot').className = 'dot ' + (s.running ? 'on' : 'off')
+      $('#st-running').innerHTML = s.running ? '<span class="state-ok">运行中</span>' : '<span class="state-off">已停止</span>'
+      $('#st-tproxy').innerHTML = s.tproxy
+        ? '<span class="state-ok">规则已加载</span>'
+        : (s.running ? '<span class="state-warn">未加载</span>' : '未加载')
+      $('#st-pid').textContent = s.pid || '-'
+      $('#st-uptime').textContent = s.running ? formatUptime(s.uptime) : '-'
+      $('#st-version').textContent = s.version || '-'
+      $('#st-config').textContent = s.config || '-'
+      $('#cfg-path').textContent = s.config ? `配置文件: ${s.config}` : ''
+      for (const sw of $$('input.sw[data-conf]')) {
+        sw.checked = s[sw.dataset.conf.toLowerCase()] === '1'
+      }
+      const appModes = { off: '关闭', blacklist: '黑名单', whitelist: '白名单' }
+      $('#st-app-mode').textContent = `分应用代理: ${appModes[s.app_proxy_mode] || s.app_proxy_mode || '关闭'} · 端口 ${s.tproxy_port || DEFAULT_TPROXY_PORT}（在 module.conf 中修改）`
+    }
+
+    const OP_LABELS = { start: '正在启动…', stop: '正在停止…', restart: '正在重启…' }
+
+    async function serviceOp(op) {
+      await withBusy(OP_LABELS[op], async () => {
+        $('#op-output').textContent = ''
+        const r = await cli(['service', op])
+        $('#op-output').textContent = combined(r)
+        await refreshStatus()
+        toast(r.code === 0 ? '操作完成' : `操作失败（退出码 ${r.code}）`)
+      })
+    }
+
+    $$('button[data-op]').forEach(btn => {
+      if (btn.dataset.op === 'stop') confirmClick(btn, '确认停止?', () => serviceOp('stop'))
+      else btn.addEventListener('click', () => serviceOp(btn.dataset.op))
+    })
+
+    $$('input.sw[data-conf]').forEach(sw => {
+      sw.addEventListener('change', async () => {
+        const value = sw.checked ? '1' : '0'
+        const r = await cli(['conf', 'set', sw.dataset.conf, value])
+        if (r.code !== 0) {
+          sw.checked = !sw.checked
+          toast(combined(r) || '保存失败')
+        } else {
+          toast('已保存')
+        }
+      })
+    })
+
+    async function refreshGeo() {
+      const r = await cli(['geo', 'status'])
+      $('#geo-output').textContent = combined(r)
+    }
+    $('#geo-refresh').addEventListener('click', refreshGeo)
+    $('#geo-update').addEventListener('click', () => withBusy('正在更新 geo 数据…', async () => {
+      const r = await cli(['geo', 'update', 'all'])
+      const st = await cli(['geo', 'status'])
+      $('#geo-output').textContent = combined(r) + '\n\n' + combined(st)
+      toast(r.code === 0 ? 'geo 数据已更新' : 'geo 更新失败，详见 service.log')
+    }))
+
+    // ───────── 配置编辑 ─────────
+    const editor = $('#editor')
+    const cfgMsg = $('#cfg-msg')
+    let savedText = ''
+    let configLoaded = false
+
+    function updateDirty() {
+      $('#cfg-dirty').hidden = editor.value === savedText
+    }
+
+    async function loadConfig() {
+      const r = await exec(`${CLI} xray show`)
+      if (r.code !== 0) {
+        setMsg(cfgMsg, combined(r) || '读取配置失败', 'err')
+        return
+      }
+      editor.value = r.out
+      savedText = r.out
+      configLoaded = true
+      updateDirty()
+      setMsg(cfgMsg, '')
+    }
+
+    function jsonErrorPosition(text, err) {
+      const m = /position (\d+)/.exec(err.message)
+      if (!m) return err.message
+      const pos = Number(m[1])
+      const before = text.slice(0, pos)
+      const line = before.split('\n').length
+      const col = pos - before.lastIndexOf('\n')
+      return `第 ${line} 行，第 ${col} 列: ${err.message}`
+    }
+
+    function parseEditor() {
+      try {
+        return { ok: true, value: JSON.parse(editor.value) }
+      } catch (e) {
+        return { ok: false, error: 'JSON 语法错误 — ' + jsonErrorPosition(editor.value, e) }
+      }
+    }
+
+    // tproxy.sh 把流量劫持到 TPROXY_PORT，配置里必须有对应的 dokodemo-door 入站
+    function lintConfig(cfg) {
+      const TPROXY_PORT = Number(status && status.tproxy_port) || DEFAULT_TPROXY_PORT
+      const warnings = []
+      const inbounds = Array.isArray(cfg.inbounds) ? cfg.inbounds : []
+      const tproxyIn = inbounds.find(ib => ib && (ib.protocol === 'dokodemo-door' || ib.protocol === 'tunnel') && Number(ib.port) === TPROXY_PORT)
+      if (!tproxyIn) {
+        warnings.push(`未找到监听 ${TPROXY_PORT} 端口的 dokodemo-door / tunnel 入站，透明代理流量将无法进入 Xray`)
+      } else {
+        const sockopt = tproxyIn.streamSettings && tproxyIn.streamSettings.sockopt
+        if (!sockopt || sockopt.tproxy !== 'tproxy') warnings.push('透明代理入站缺少 streamSettings.sockopt.tproxy = "tproxy"')
+        if (!tproxyIn.settings || tproxyIn.settings.followRedirect !== true) warnings.push('透明代理入站缺少 settings.followRedirect = true')
+      }
+      return warnings
+    }
+
+    async function testCandidate() {
+      const parsed = parseEditor()
+      if (!parsed.ok) return { ok: false, text: parsed.error }
+      const w = await writeFile(CANDIDATE, editor.value)
+      if (w.code !== 0) return { ok: false, text: '写入临时文件失败: ' + combined(w) }
+      const r = await cli(['xray', 'test', CANDIDATE])
+      return { ok: r.code === 0, text: combined(r), warnings: lintConfig(parsed.value) }
+    }
+
+    function showResult(res, okText) {
+      const lines = []
+      if (res.warnings && res.warnings.length) lines.push(res.warnings.map(w => '⚠ ' + w).join('\n'))
+      lines.push(res.ok ? okText : res.text)
+      if (res.ok && res.text) lines.push('\n' + res.text)
+      setMsg(cfgMsg, lines.join('\n'), res.ok ? (res.warnings && res.warnings.length ? 'warn' : 'ok') : 'err')
+    }
+
+    async function saveConfig(restart) {
+      await withBusy(restart ? '正在保存并重启…' : '正在保存…', async () => {
+        const parsed = parseEditor()
+        if (!parsed.ok) { setMsg(cfgMsg, parsed.error, 'err'); return }
+        const w = await writeFile(CANDIDATE, editor.value)
+        if (w.code !== 0) { setMsg(cfgMsg, '写入临时文件失败: ' + combined(w), 'err'); return }
+        const r = await cli(['xray', 'apply', CANDIDATE])
+        await exec(`rm -f ${shq(CANDIDATE)}`)
+        if (r.code !== 0) { showResult({ ok: false, text: combined(r) }); return }
+        savedText = editor.value
+        updateDirty()
+        let text = combined(r)
+        if (restart) {
+          const rr = await cli(['service', 'restart'])
+          text += '\n\n' + combined(rr)
+          $('#op-output').textContent = combined(rr)
+          await refreshStatus()
+          if (rr.code !== 0) { setMsg(cfgMsg, text, 'err'); toast('配置已保存，但重启失败'); return }
+        }
+        showResult({ ok: true, text, warnings: lintConfig(parsed.value) }, restart ? '已保存并重启' : '已保存（重启服务后生效）')
+        toast(restart ? '已保存并重启' : '已保存')
+      })
+    }
+
+    editor.addEventListener('input', updateDirty)
+    editor.addEventListener('keydown', e => {
+      if (e.key !== 'Tab') return
+      e.preventDefault()
+      const { selectionStart: s, selectionEnd: t } = editor
+      editor.setRangeText('  ', s, t, 'end')
+      updateDirty()
+    })
+
+    $('#cfg-reload').addEventListener('click', () => {
+      if (editor.value !== savedText) {
+        setMsg(cfgMsg, '有未保存的修改，已放弃并重新加载', 'warn')
+      }
+      loadConfig()
+    })
+    $('#cfg-format').addEventListener('click', () => {
+      const parsed = parseEditor()
+      if (!parsed.ok) { setMsg(cfgMsg, parsed.error, 'err'); return }
+      editor.value = JSON.stringify(parsed.value, null, 2) + '\n'
+      updateDirty()
+      setMsg(cfgMsg, '已格式化', 'ok')
+    })
+    $('#cfg-test').addEventListener('click', () => withBusy('正在校验…', async () => {
+      const res = await testCandidate()
+      await exec(`rm -f ${shq(CANDIDATE)}`)
+      showResult(res, '校验通过')
+    }))
+    $('#cfg-save').addEventListener('click', () => saveConfig(false))
+    $('#cfg-save-restart').addEventListener('click', () => saveConfig(true))
+    confirmClick($('#cfg-restore'), '确认恢复?', () => withBusy('正在恢复…', async () => {
+      if (!status || !status.config) { setMsg(cfgMsg, '无法确定配置路径', 'err'); return }
+      const r = await cli(['xray', 'apply', status.config + '.bak'])
+      if (r.code !== 0) { setMsg(cfgMsg, combined(r) || '恢复失败', 'err'); return }
+      await loadConfig()
+      setMsg(cfgMsg, '已恢复上一版配置（当前版本已互换为 .bak），重启服务后生效', 'ok')
+    }))
+
+    // ───────── 日志 ─────────
+    let logTimer = null
+
+    async function refreshLog() {
+      const lines = Math.min(5000, Math.max(10, Number($('#log-lines').value) || 200))
+      const view = $('#log-view')
+      const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40
+      const r = await cli(['service', 'logs', $('#log-target').value, String(lines)])
+      view.textContent = combined(r) || '(空)'
+      if (atBottom || !view.dataset.loaded) view.scrollTop = view.scrollHeight
+      view.dataset.loaded = '1'
+    }
+
+    function setLogPolling() {
+      clearInterval(logTimer)
+      logTimer = null
+      if ($('#log-auto').checked && currentTab === 'logs') logTimer = setInterval(refreshLog, LOG_POLL_MS)
+    }
+
+    $('#log-refresh').addEventListener('click', refreshLog)
+    $('#log-target').addEventListener('change', () => { delete $('#log-view').dataset.loaded; refreshLog() })
+    $('#log-auto').addEventListener('change', setLogPolling)
+
+    // ───────── 标签页 ─────────
+    let currentTab = 'status'
+
+    function showTab(tab) {
+      currentTab = tab
+      $$('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab))
+      for (const name of ['status', 'config', 'logs']) $('#tab-' + name).hidden = name !== tab
+      if (tab === 'config' && !configLoaded) loadConfig()
+      if (tab === 'logs') refreshLog()
+      if (tab === 'status') refreshStatus()
+      setLogPolling()
+    }
+    $$('nav button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)))
+
+    // ───────── 启动 ─────────
+    if (!inKsu) {
+      $('#env-banner').hidden = false
+      $('#st-running').textContent = '-'
+      return
+    }
+
+    refreshStatus()
+    refreshGeo()
+    setInterval(() => {
+      if (!busy && currentTab === 'status' && document.visibilityState === 'visible') refreshStatus()
+    }, STATUS_POLL_MS)
+  })()
+  </script>
+</body>
+</html>

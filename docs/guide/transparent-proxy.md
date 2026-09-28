@@ -1,82 +1,70 @@
 # 透明代理与分应用代理
 
-透明代理层由 `scripts/network/tproxy.sh` 和 `config/tproxy/tproxy.conf` 驱动，负责把 Android 系统流量送入 Xray 的 `tproxy-in` 入站。
+透明代理层由 `scripts/network/tproxy.sh` 实现，配置项在 `config/module.conf`，负责把 Android 系统流量送入 Xray 的透明代理入站。
 
-## 默认链路
+## 链路
 
 ```text
-应用流量
-  -> iptables / ip rule / ipset
-  -> 127.0.0.1:1536 或本地 TProxy 端口
-  -> Xray dokodemo-door 入站
+本机应用
+  -> mangle OUTPUT：跳过 Xray 自身、保留地址、不代理的应用，其余打 fwmark 20
+  -> ip rule：fwmark 20 -> 路由表 100 -> local default dev lo
+  -> mangle PREROUTING（入接口 lo）
+  -> TPROXY -> Xray dokodemo-door 入站（TPROXY_PORT，默认 12345）
   -> Xray routing
+
+热点 / USB 共享下游设备
+  -> mangle PREROUTING（入接口在 HOTSPOT_INTERFACES 中）
+  -> TPROXY -> Xray
 ```
 
-默认端口：
+IPv4 和 IPv6 各有一套结构相同的规则（`iptables` / `ip6tables`）。
+
+## 端口
+
+`module.conf` 里的 `TPROXY_PORT` 与 Xray 入站端口必须一致：
 
 ```text
-PROXY_TCP_PORT="1536"
-PROXY_UDP_PORT="1536"
-DNS_PORT="1536"
+TPROXY_PORT=12345
 ```
-
-Xray `config.json` 里的入站端口也必须是 `1536`，除非你同时修改这三项。
-
-## TProxy 与 mark
-
-默认透明代理模式：
-
-```text
-PROXY_MODE=1
-```
-
-Xray 入站默认：
 
 ```json
-"sockopt": {
-  "tproxy": "tproxy"
+{
+  "tag": "tproxy-in",
+  "protocol": "dokodemo-door",
+  "port": 12345,
+  "settings": { "network": "tcp,udp", "followRedirect": true },
+  "streamSettings": { "sockopt": { "tproxy": "tproxy" } }
 }
 ```
 
-Xray 出站默认：
+## DNS
+
+发往任何非回环地址的 UDP 53 都会进入 Xray，包括 WiFi 下发往路由器（如 `192.168.1.1`）的 DNS。默认配置中的路由规则把它们交给 `dns-out`：
 
 ```json
-"sockopt": {
-  "mark": 2
-}
+{ "port": 53, "outboundTag": "dns-out" }
 ```
-
-`ROUTING_MARK="2"` 用于让 Xray 自己发出的外连绕过透明代理回环。不要只改一边。
 
 ## 分应用代理
 
-查看配置：
+编辑 `module.conf`：
 
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli app list'
+```text
+# 只代理这两个应用
+APP_PROXY_MODE=whitelist
+APP_PROXY_LIST="com.google.android.youtube com.android.chrome"
 ```
 
-白名单模式：
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli app mode whitelist'
-su -c '/data/adb/modules/netproxy/scripts/cli app add com.example.app'
+```text
+# 除微信外全部代理
+APP_PROXY_MODE=blacklist
+APP_PROXY_LIST="com.tencent.mm"
 ```
 
-黑名单模式：
+然后重启服务：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli app mode blacklist'
-su -c '/data/adb/modules/netproxy/scripts/cli app add com.example.app'
+su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 ```
 
-在黑名单模式下，添加到列表里的应用会绕过代理；在白名单模式下，只有列表里的应用进入代理。
-
-## QUIC 与中国 IP 绕过
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy quic on'
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy cnip on'
-```
-
-这些是透明代理层规则，不会自动修改 Xray routing。需要更细的域名或协议分流时，应写在 `config/xray/config.json`。
+更多说明见 [透明代理配置](../config/tproxy.md)。更细的域名或协议分流应写在 `config/xray/config.json` 的 routing 中。

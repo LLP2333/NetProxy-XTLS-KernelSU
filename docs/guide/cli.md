@@ -12,15 +12,15 @@ NetProxy CLI 路径固定为：
 su -c /data/adb/modules/netproxy/scripts/cli help
 ```
 
-日常开关服务可以不用 CLI。模块默认开机自启；手动开关可在 KernelSU / Magisk / APatch 的模块页面点击 NetProxy 的“操作”按钮。
+日常开关服务可以不用 CLI。模块默认开机自启；手动开关可在 KernelSU / Magisk / APatch 的模块页面点击 NetProxy 的“操作”按钮，KernelSU 用户也可以直接打开模块的 WebUI。
 
 ## 命令分组
 
 ```text
 cli service {status|start|stop|restart|logs}
-cli xray {config|show|test|version}
-cli app {list|mode|add|remove|enable|disable}
-cli tproxy {status|reload|quic|cnip}
+cli xray {config|show|test|apply|version}
+cli geo {status|update}
+cli conf {get|set}
 ```
 
 ## service
@@ -32,6 +32,8 @@ su -c '/data/adb/modules/netproxy/scripts/cli service stop'
 su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 ```
 
+`service status --json` 输出单行 JSON（WebUI 使用），包含运行状态、透明代理规则是否已加载以及透明代理相关设置。
+
 查看日志：
 
 ```sh
@@ -41,50 +43,41 @@ su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
 
 ## xray
 
-查看当前配置路径：
-
 ```sh
+# 当前配置路径 / 内容
 su -c '/data/adb/modules/netproxy/scripts/cli xray config'
-```
-
-输出配置内容：
-
-```sh
 su -c '/data/adb/modules/netproxy/scripts/cli xray show'
-```
 
-校验配置：
-
-```sh
+# 校验当前配置，或校验任意文件
 su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-```
+su -c '/data/adb/modules/netproxy/scripts/cli xray test /sdcard/new.json'
 
-查看版本：
+# 校验通过后替换当前配置，上一版备份为 config.json.bak
+su -c '/data/adb/modules/netproxy/scripts/cli xray apply /sdcard/new.json'
 
-```sh
+# 回滚到上一版（当前版本会与 .bak 互换）
+su -c '/data/adb/modules/netproxy/scripts/cli xray apply /data/adb/modules/netproxy/config/xray/config.json.bak'
+
 su -c '/data/adb/modules/netproxy/scripts/cli xray version'
 ```
 
-## app
+`apply` 校验失败时不会修改当前配置。替换后需要重启服务才会生效。
+
+## geo
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli app list'
-su -c '/data/adb/modules/netproxy/scripts/cli app mode whitelist'
-su -c '/data/adb/modules/netproxy/scripts/cli app add com.example.app'
-su -c '/data/adb/modules/netproxy/scripts/cli app remove com.example.app'
-su -c '/data/adb/modules/netproxy/scripts/cli app enable'
-su -c '/data/adb/modules/netproxy/scripts/cli app disable'
+su -c '/data/adb/modules/netproxy/scripts/cli geo status'
+su -c '/data/adb/modules/netproxy/scripts/cli geo update'          # 同时更新 geoip 和 geosite
+su -c '/data/adb/modules/netproxy/scripts/cli geo update geosite'
 ```
 
-`blacklist` 模式表示列表里的应用绕过代理；`whitelist` 模式表示只有列表里的应用进入代理。
+## conf
 
-## tproxy
+读写 `module.conf` 中的 0/1 开关：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy status'
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy reload'
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy quic off'
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy cnip on'
+su -c '/data/adb/modules/netproxy/scripts/cli conf get PROXY_IPV6'
+su -c '/data/adb/modules/netproxy/scripts/cli conf set PROXY_IPV6 0'
 ```
 
-`tproxy reload` 只重载透明代理规则，不会修改 Xray 配置。如果你改了 `config.json`，请重启服务。
+可用的键：`AUTO_START`、`GEO_UPDATE_ON_STOP`、`PROXY_IPV6`、`PROXY_HOTSPOT`。端口、分应用列表等其他设置请直接编辑 `module.conf`，见 [module.conf](../config/module.md)。透明代理相关设置修改后需要重启服务。

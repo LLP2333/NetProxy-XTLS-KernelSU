@@ -109,7 +109,7 @@ verify_sha256() {
   fi
 
   if [ "$expected" != "$actual" ]; then
-    log "WARN" "geo-update: sha256 不匹配（期望 $expected 实际 $actual）"
+    log "WARN" "geo-update: sha256 不匹配（期望 $expected 实际 ${actual}）"
     return 1
   fi
 
@@ -145,7 +145,7 @@ update_one() {
   fi
 
   if ! http_download "${url}.sha256sum" "$tmp_sum"; then
-    log "WARN" "geo-update: 下载 sha256 失败 $target_name（跳过校验，仍替换）"
+    log "WARN" "geo-update: 下载 sha256 失败 ${target_name}（跳过校验，仍替换）"
   elif ! verify_sha256 "$tmp_data" "$tmp_sum"; then
     log "WARN" "geo-update: 校验失败，丢弃下载文件 $target_name"
     rm -rf "$tmp_dir"
@@ -192,7 +192,7 @@ main() {
       ;;
   esac
 
-  log "INFO" "geo-update: 完成 (成功 $ok，失败 $fail)"
+  log "INFO" "geo-update: 完成 (成功 ${ok}，失败 $fail)"
   # 任意一项成功就视为 0；全部失败才返回 1
   [ "$ok" -gt 0 ] && return 0
   return 1

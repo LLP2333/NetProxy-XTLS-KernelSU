@@ -1,28 +1,30 @@
 #!/system/bin/sh
-# TProxy 透明代理网络规则管理
-# 参考 NetProxy-Magisk 实现
+# TProxy 透明代理网络规则管理（IPv4 + IPv6）
+# 参考 NetProxy-Magisk 旧版 iptables 实现（AndroidTProxyShell）
 #
 # ┌─────────────────────────────────────────────────────────────────────┐
-# │ TPROXY 透明代理数据流                                              │
+# │ TPROXY 透明代理数据流（iptables / ip6tables 各一套，结构相同）     │
 # │                                                                     │
 # │ 【本机出站流量】                                                    │
 # │   App → OUTPUT → PROXY_OUTPUT                                       │
 # │         ├─ conntrack REPLY 方向 → 跳过（已有连接的回包）            │
 # │         ├─ owner match 代理进程 → 跳过（防止回环）                  │
-# │         ├─ 目标为保留地址 → 跳过（局域网/回环等）                   │
+# │         ├─ 目标为保留地址 → 跳过（发往局域网的 DNS 除外）           │
+# │         ├─ PROXY_APP 分应用黑/白名单 → 不代理的应用跳过             │
 # │         └─ 其余流量 → MARK 打标记                                   │
 # │              ↓                                                      │
 # │   ip rule: fwmark → 路由表 → local default dev lo                   │
 # │              ↓                                                      │
 # │   流量重路由到 lo → 重新进入 PREROUTING                             │
 # │                                                                     │
-# │ 【PREROUTING（含重路由和外部入站）】                                │
+# │ 【PREROUTING（lo 重路由 + 热点/USB 共享下游）】                     │
 # │   → PROXY_PREROUTING                                                │
 # │     ├─ conntrack REPLY 方向 → 跳过                                  │
-# │     ├─ 目标为保留地址 → 跳过                                        │
-# │     └─ 其余流量 → TPROXY 劫持到代理端口                             │
+# │     ├─ 目标为保留地址 → 跳过（发往局域网的 DNS 除外）               │
+# │     ├─ 入接口为 lo 或共享接口 → PROXY_TPROXY                        │
+# │     └─ 其他接口（上游入站） → 跳过                                  │
 # │              ↓                                                      │
-# │   Xray (端口 PROXY_PORT) 处理流量                                   │
+# │   Xray (端口 TPROXY_PORT) 处理流量                                  │
 # └─────────────────────────────────────────────────────────────────────┘
 
 set -u
@@ -30,6 +32,11 @@ set -u
 export TZ=Asia/Shanghai
 
 readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+readonly MODDIR="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+readonly MODULE_CONF="$MODDIR/config/module.conf"
+readonly PACKAGES_LIST="/data/system/packages.list"
+
+. "$MODDIR/scripts/utils/config.sh"
 
 ################################################################################
 # 常量
@@ -39,20 +46,23 @@ readonly SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 readonly CORE_USER="root"
 readonly CORE_GROUP="net_admin"
 
-readonly PROXY_PORT="12345"
-
 # fwmark 标记值，ip rule 据此将流量导入自定义路由表
 readonly MARK=20
 readonly TABLE_ID=100
 
-# RFC 保留地址段 — 这些地址不应走代理
-# 包括：回环、私有网段（RFC1918）、运营商级NAT（RFC6598）、
-# 链路本地、组播、保留实验段等
+readonly DEFAULT_TPROXY_PORT=12345
+readonly DEFAULT_HOTSPOT_INTERFACES="wlan2 ap+ swlan0 rndis+ ncm+"
+
+# 回环地址：完全绕过，包括 DNS
+readonly LOOPBACK_IPV4="127.0.0.0/8"
+readonly LOOPBACK_IPV6="::1/128"
+
+# RFC 保留地址段 — 不走代理，但 UDP 53 仍然劫持，
+# 否则连 WiFi 后发往路由器的 DNS 会绕过 Xray 的 dns-out
 readonly RESERVED_IPV4="\
 0.0.0.0/8 \
 10.0.0.0/8 \
 100.64.0.0/10 \
-127.0.0.0/8 \
 169.254.0.0/16 \
 172.16.0.0/12 \
 192.0.0.0/24 \
@@ -60,6 +70,20 @@ readonly RESERVED_IPV4="\
 224.0.0.0/4 \
 240.0.0.0/4 \
 255.255.255.255/32"
+
+# 含 NAT64 前缀 64:ff9b::/96：464XLAT 下 clatd 转换后的流量不重复处理
+readonly RESERVED_IPV6="\
+::/128 \
+::ffff:0:0/96 \
+64:ff9b::/96 \
+100::/64 \
+2001:db8::/32 \
+fc00::/7 \
+fe80::/10 \
+ff00::/8"
+
+# 本脚本创建的全部自定义链（清理时无论配置如何都全部尝试删除）
+readonly CHAINS="PROXY_PREROUTING PROXY_OUTPUT PROXY_TPROXY PROXY_APP"
 
 ################################################################################
 # 日志
@@ -82,14 +106,66 @@ iptables() {
   command iptables -w 100 "$@"
 }
 
-ip_rule() {
-  log "DEBUG" "[EXEC] ip rule $*"
-  command ip rule "$@"
+ip6tables() {
+  log "DEBUG" "[EXEC] ip6tables -w 100 $*"
+  command ip6tables -w 100 "$@"
 }
 
-ip_route() {
-  log "DEBUG" "[EXEC] ip route $*"
-  command ip route "$@"
+# 按地址族执行 iptables / ip6tables
+ipt() {
+  local family="$1"
+  shift
+  if [ "$family" = "6" ]; then
+    ip6tables "$@"
+  else
+    iptables "$@"
+  fi
+}
+
+# 按地址族执行 ip / ip -6
+ipcmd() {
+  local family="$1"
+  shift
+  log "DEBUG" "[EXEC] ip -$family $*"
+  command ip "-$family" "$@"
+}
+
+################################################################################
+# 配置
+################################################################################
+
+# 只接受 0/1，其他值回退默认值
+read_switch() {
+  local value
+  value="$(read_conf "$MODULE_CONF" "$1" "$2")"
+  case "$value" in
+    0 | 1) printf '%s' "$value" ;;
+    *) printf '%s' "$2" ;;
+  esac
+}
+
+load_config() {
+  TPROXY_PORT="$(read_conf "$MODULE_CONF" "TPROXY_PORT" "$DEFAULT_TPROXY_PORT")"
+  case "$TPROXY_PORT" in
+    '' | *[!0-9]*)
+      log "WARN" "TPROXY_PORT 无效（${TPROXY_PORT}），使用默认值 $DEFAULT_TPROXY_PORT"
+      TPROXY_PORT="$DEFAULT_TPROXY_PORT"
+      ;;
+  esac
+
+  PROXY_IPV6="$(read_switch "PROXY_IPV6" 1)"
+  PROXY_HOTSPOT="$(read_switch "PROXY_HOTSPOT" 1)"
+  HOTSPOT_INTERFACES="$(read_conf "$MODULE_CONF" "HOTSPOT_INTERFACES" "$DEFAULT_HOTSPOT_INTERFACES")"
+
+  APP_PROXY_MODE="$(read_conf "$MODULE_CONF" "APP_PROXY_MODE" "off")"
+  case "$APP_PROXY_MODE" in
+    off | blacklist | whitelist) ;;
+    *)
+      log "WARN" "APP_PROXY_MODE 无效（${APP_PROXY_MODE}），按 off 处理"
+      APP_PROXY_MODE="off"
+      ;;
+  esac
+  APP_PROXY_LIST="$(read_conf "$MODULE_CONF" "APP_PROXY_LIST" "" | tr ',' ' ')"
 }
 
 ################################################################################
@@ -119,6 +195,41 @@ setup_env() {
       exit 1
     fi
   done
+
+  HAS_IP6TABLES=0
+  command -v ip6tables >/dev/null 2>&1 && HAS_IP6TABLES=1
+}
+
+################################################################################
+# 分应用代理：把 [用户ID:]包名 解析为 UID
+# UID = 用户ID * 100000 + appId，appId 取自 packages.list 第 2 列
+################################################################################
+
+resolve_app_uids() {
+  [ -n "$APP_PROXY_LIST" ] || return 0
+
+  if [ ! -r "$PACKAGES_LIST" ]; then
+    log "WARN" "无法读取 ${PACKAGES_LIST}，分应用代理未生效"
+    return 0
+  fi
+
+  awk -v tokens="$APP_PROXY_LIST" '
+    BEGIN {
+      n = split(tokens, list, " ")
+      for (i = 1; i <= n; i++) {
+        if (list[i] ~ /:/) { split(list[i], p, ":"); user[i] = p[1]; pkg[i] = p[2] }
+        else { user[i] = 0; pkg[i] = list[i] }
+        wanted[pkg[i]] = 1
+      }
+    }
+    ($1 in wanted) && $2 ~ /^[0-9]+$/ { appid[$1] = $2 }
+    END {
+      for (i = 1; i <= n; i++) {
+        if (pkg[i] in appid) print user[i] * 100000 + appid[pkg[i]]
+        else print "missing:" user[i] ":" pkg[i] > "/dev/stderr"
+      }
+    }
+  ' "$PACKAGES_LIST" 2>"$APP_MISSING_FILE"
 }
 
 ################################################################################
@@ -127,131 +238,238 @@ setup_env() {
 ################################################################################
 
 safe_chain_create() {
-  local table="$1" chain="$2"
-  iptables -t "$table" -N "$chain" 2>/dev/null || true
-  iptables -t "$table" -F "$chain"
+  local family="$1" chain="$2"
+  ipt "$family" -t mangle -N "$chain" 2>/dev/null || true
+  ipt "$family" -t mangle -F "$chain"
 }
 
 ################################################################################
 # 清理 — 移除所有透明代理规则，恢复干净状态
+# 不依赖当前配置：两个地址族、所有链都尝试删除，避免改配置后残留
 ################################################################################
+
+cleanup_family() {
+  local family="$1" chain proto
+
+  for proto in tcp udp; do
+    ipt "$family" -t mangle -D PREROUTING -p "$proto" -j PROXY_PREROUTING 2>/dev/null || true
+    ipt "$family" -t mangle -D OUTPUT -p "$proto" -j PROXY_OUTPUT 2>/dev/null || true
+  done
+
+  for chain in $CHAINS PROXY_DIVERT; do
+    ipt "$family" -t mangle -F "$chain" 2>/dev/null || true
+  done
+  for chain in $CHAINS PROXY_DIVERT; do
+    ipt "$family" -t mangle -X "$chain" 2>/dev/null || true
+  done
+
+  ipcmd "$family" rule del fwmark "$MARK" table "$TABLE_ID" 2>/dev/null || true
+  if [ "$family" = "6" ]; then
+    ipcmd 6 route del local ::/0 dev lo table "$TABLE_ID" 2>/dev/null || true
+  else
+    ipcmd 4 route del local default dev lo table "$TABLE_ID" 2>/dev/null || true
+  fi
+}
 
 cleanup() {
   log "INFO" "清理透明代理规则..."
-
-  # 从主链摘除跳转
-  iptables -t mangle -D PREROUTING -p tcp -j PROXY_PREROUTING 2>/dev/null || true
-  iptables -t mangle -D PREROUTING -p udp -j PROXY_PREROUTING 2>/dev/null || true
-  iptables -t mangle -D OUTPUT -p tcp -j PROXY_OUTPUT 2>/dev/null || true
-  iptables -t mangle -D OUTPUT -p udp -j PROXY_OUTPUT 2>/dev/null || true
-
-  # 清空并删除自定义子链
-  local chain
-  for chain in PROXY_PREROUTING PROXY_OUTPUT PROXY_DIVERT; do
-    iptables -t mangle -F "$chain" 2>/dev/null || true
-    iptables -t mangle -X "$chain" 2>/dev/null || true
-  done
-
-  # 清理策略路由
-  ip_rule del fwmark "$MARK" table "$TABLE_ID" 2>/dev/null || true
-  ip_route del local default dev lo table "$TABLE_ID" 2>/dev/null || true
-
+  cleanup_family 4
+  [ "$HAS_IP6TABLES" = "1" ] && cleanup_family 6
   log "INFO" "透明代理规则已清理"
 }
 
 ################################################################################
-# 启动 — 分为三个阶段：策略路由 → PREROUTING 链 → OUTPUT 链
+# 启动 — 每个地址族分为：策略路由 → PROXY_TPROXY → PREROUTING → OUTPUT
 ################################################################################
 
-# 阶段 1: 策略路由
+# 策略路由
 # 将带有 fwmark 标记的流量导入自定义路由表，
 # 路由表将流量发回 lo，使其重新经过 PREROUTING 被 TPROXY 劫持
 setup_routing() {
-  log "INFO" "配置策略路由 (fwmark=$MARK → table=$TABLE_ID → lo)..."
+  local family="$1"
 
-  ip_rule add fwmark "$MARK" table "$TABLE_ID" || {
-    log "ERROR" "ip rule add 失败"; return 1
+  log "INFO" "IPv$family: 配置策略路由 (fwmark=$MARK → table=$TABLE_ID → lo)..."
+
+  ipcmd "$family" rule add fwmark "$MARK" table "$TABLE_ID" || {
+    log "ERROR" "IPv$family: ip rule add 失败"; return 1
   }
-  ip_route add local default dev lo table "$TABLE_ID" || {
-    log "ERROR" "ip route add 失败"; return 1
+  if [ "$family" = "6" ]; then
+    ipcmd 6 route add local ::/0 dev lo table "$TABLE_ID"
+  else
+    ipcmd 4 route add local default dev lo table "$TABLE_ID"
+  fi || {
+    log "ERROR" "IPv$family: ip route add 失败"; return 1
   }
-  echo 1 > /proc/sys/net/ipv4/ip_forward
+
+  [ "$family" = "4" ] && echo 1 > /proc/sys/net/ipv4/ip_forward
+  return 0
 }
 
-# 阶段 2: PREROUTING 链
-# 处理从外部到达或经策略路由重路由回来的流量
+# 保留地址绕过：回环完全跳过，其余保留段只放行非 DNS 流量
+add_reserved_bypass() {
+  local family="$1" chain="$2" loopback reserved cidr
+
+  if [ "$family" = "6" ]; then
+    loopback="$LOOPBACK_IPV6"
+    reserved="$RESERVED_IPV6"
+  else
+    loopback="$LOOPBACK_IPV4"
+    reserved="$RESERVED_IPV4"
+  fi
+
+  ipt "$family" -t mangle -A "$chain" -d "$loopback" -j RETURN
+  for cidr in $reserved; do
+    ipt "$family" -t mangle -A "$chain" -d "$cidr" -p tcp -j RETURN
+    ipt "$family" -t mangle -A "$chain" -d "$cidr" -p udp ! --dport 53 -j RETURN
+  done
+}
+
+# 实际的 TPROXY 目标；任何一条失败都视为该地址族不支持
+setup_tproxy_chain() {
+  local family="$1"
+
+  safe_chain_create "$family" PROXY_TPROXY
+  ipt "$family" -t mangle -A PROXY_TPROXY -p tcp -j TPROXY \
+    --on-port "$TPROXY_PORT" --tproxy-mark "$MARK" || return 1
+  ipt "$family" -t mangle -A PROXY_TPROXY -p udp -j TPROXY \
+    --on-port "$TPROXY_PORT" --tproxy-mark "$MARK" || return 1
+}
+
+# PREROUTING 链
+# 只劫持 lo（本机重路由回来的流量）和共享网络下游接口，
+# 上游接口（移动数据/WiFi）的入站流量不处理
 setup_prerouting_chain() {
-  log "INFO" "配置 PREROUTING 链..."
-  local cidr
+  local family="$1" iface
 
-  safe_chain_create mangle PROXY_PREROUTING
+  safe_chain_create "$family" PROXY_PREROUTING
 
-  iptables -t mangle -A PROXY_PREROUTING -m conntrack --ctdir REPLY -j RETURN
+  ipt "$family" -t mangle -A PROXY_PREROUTING -m conntrack --ctdir REPLY -j RETURN
+  add_reserved_bypass "$family" PROXY_PREROUTING
 
-  for cidr in $RESERVED_IPV4; do
-    iptables -t mangle -A PROXY_PREROUTING -d "$cidr" -j RETURN
+  ipt "$family" -t mangle -A PROXY_PREROUTING -i lo -j PROXY_TPROXY
+  if [ "$PROXY_HOTSPOT" = "1" ]; then
+    for iface in $HOTSPOT_INTERFACES; do
+      ipt "$family" -t mangle -A PROXY_PREROUTING -i "$iface" -j PROXY_TPROXY
+    done
+  fi
+
+  ipt "$family" -t mangle -I PREROUTING -p tcp -j PROXY_PREROUTING
+  ipt "$family" -t mangle -I PREROUTING -p udp -j PROXY_PREROUTING
+}
+
+# 分应用链：ACCEPT 表示不代理（结束 mangle OUTPUT 处理），RETURN 表示继续打标记
+setup_app_chain() {
+  local family="$1" uid
+
+  safe_chain_create "$family" PROXY_APP
+  [ "$APP_PROXY_MODE" = "off" ] && return 0
+
+  for uid in $APP_UIDS; do
+    if [ "$APP_PROXY_MODE" = "blacklist" ]; then
+      ipt "$family" -t mangle -A PROXY_APP -m owner --uid-owner "$uid" -j ACCEPT
+    else
+      ipt "$family" -t mangle -A PROXY_APP -m owner --uid-owner "$uid" -j RETURN
+    fi
   done
 
-  iptables -t mangle -A PROXY_PREROUTING -p tcp -j TPROXY \
-    --on-port "$PROXY_PORT" --tproxy-mark "$MARK"
-  iptables -t mangle -A PROXY_PREROUTING -p udp -j TPROXY \
-    --on-port "$PROXY_PORT" --tproxy-mark "$MARK"
-
-  iptables -t mangle -I PREROUTING -p tcp -j PROXY_PREROUTING
-  iptables -t mangle -I PREROUTING -p udp -j PROXY_PREROUTING
+  [ "$APP_PROXY_MODE" = "whitelist" ] && ipt "$family" -t mangle -A PROXY_APP -j ACCEPT
+  return 0
 }
 
-# 阶段 3: OUTPUT 链
+# OUTPUT 链
 # 处理本机出站流量，给需要代理的流量打标记
 setup_output_chain() {
-  log "INFO" "配置 OUTPUT 链..."
-  local cidr
+  local family="$1"
 
-  safe_chain_create mangle PROXY_OUTPUT
+  setup_app_chain "$family"
+  safe_chain_create "$family" PROXY_OUTPUT
 
-  iptables -t mangle -A PROXY_OUTPUT -m conntrack --ctdir REPLY -j RETURN
+  ipt "$family" -t mangle -A PROXY_OUTPUT -m conntrack --ctdir REPLY -j RETURN
 
   # 绕过代理进程自身流量，防止回环
-  iptables -t mangle -A PROXY_OUTPUT -m owner \
+  ipt "$family" -t mangle -A PROXY_OUTPUT -m owner \
     --uid-owner "$CORE_USER" --gid-owner "$CORE_GROUP" -j RETURN
 
-  for cidr in $RESERVED_IPV4; do
-    iptables -t mangle -A PROXY_OUTPUT -d "$cidr" -j RETURN
-  done
+  add_reserved_bypass "$family" PROXY_OUTPUT
+  ipt "$family" -t mangle -A PROXY_OUTPUT -j PROXY_APP
 
   # 剩余流量打标记 → 经 ip rule 重路由到 lo → 回到 PREROUTING → TPROXY
-  iptables -t mangle -A PROXY_OUTPUT -p tcp -j MARK --set-mark "$MARK"
-  iptables -t mangle -A PROXY_OUTPUT -p udp -j MARK --set-mark "$MARK"
+  ipt "$family" -t mangle -A PROXY_OUTPUT -j MARK --set-mark "$MARK"
 
-  iptables -t mangle -I OUTPUT -p tcp -j PROXY_OUTPUT
-  iptables -t mangle -I OUTPUT -p udp -j PROXY_OUTPUT
+  ipt "$family" -t mangle -I OUTPUT -p tcp -j PROXY_OUTPUT
+  ipt "$family" -t mangle -I OUTPUT -p udp -j PROXY_OUTPUT
+}
+
+setup_family() {
+  local family="$1"
+
+  # 先建 TPROXY 目标链：内核不支持时在挂入主链之前就能发现
+  setup_tproxy_chain "$family" || {
+    log "ERROR" "IPv$family: 内核不支持 TPROXY 目标"; return 1
+  }
+  setup_routing "$family" || return 1
+  setup_prerouting_chain "$family"
+  setup_output_chain "$family"
 }
 
 # 验证 — 输出当前 iptables 和路由规则用于调试
 verify_rules() {
-  log "INFO" "透明代理规则已加载，验证中..."
+  local family="$1" chain_name
 
-  local chain_name
-  for chain_name in PREROUTING PROXY_PREROUTING OUTPUT PROXY_OUTPUT; do
-    log "DEBUG" "--- $chain_name ---"
-    command iptables -w 100 -t mangle -L "$chain_name" -n 2>&1 | while IFS= read -r line; do
+  log "INFO" "IPv$family: 透明代理规则已加载，验证中..."
+  for chain_name in PREROUTING PROXY_PREROUTING OUTPUT PROXY_OUTPUT PROXY_APP; do
+    log "DEBUG" "--- IPv$family $chain_name ---"
+    ipt "$family" -t mangle -L "$chain_name" -n 2>&1 | while IFS= read -r line; do
       log "DEBUG" "  $line"
     done
   done
 
-  log "DEBUG" "--- ip rule ---"
-  command ip rule show 2>&1 | while IFS= read -r line; do
+  log "DEBUG" "--- ip -$family rule ---"
+  command ip "-$family" rule show 2>&1 | while IFS= read -r line; do
     log "DEBUG" "  $line"
   done
 }
 
 start() {
-  log "INFO" "加载透明代理规则 (端口=$PROXY_PORT, 标记=$MARK, 绕过=$CORE_USER:$CORE_GROUP)..."
+  load_config
 
-  setup_routing || return 1
-  setup_prerouting_chain
-  setup_output_chain
-  verify_rules
+  APP_UIDS=""
+  APP_MISSING_FILE="${TMPDIR:-/data/local/tmp}/netproxy_app_missing.$$"
+  if [ "$APP_PROXY_MODE" != "off" ]; then
+    APP_UIDS="$(resolve_app_uids | sort -un | tr '\n' ' ' | sed 's/ *$//')"
+    if [ -s "$APP_MISSING_FILE" ]; then
+      while IFS= read -r line; do
+        log "WARN" "分应用: 未找到应用 ${line#missing:}"
+      done < "$APP_MISSING_FILE"
+    fi
+    rm -f "$APP_MISSING_FILE"
+    log "INFO" "分应用代理: ${APP_PROXY_MODE}（UID: ${APP_UIDS:-无}）"
+    if [ "$APP_PROXY_MODE" = "whitelist" ] && [ -z "$APP_UIDS" ]; then
+      log "WARN" "白名单为空，本机应用流量都不会被代理"
+    fi
+  fi
+
+  log "INFO" "加载透明代理规则 (端口=$TPROXY_PORT, 标记=$MARK, IPv6=$PROXY_IPV6, 共享网络=$PROXY_HOTSPOT, 绕过=$CORE_USER:$CORE_GROUP)..."
+  [ "$PROXY_HOTSPOT" = "1" ] && log "INFO" "共享网络接口: $HOTSPOT_INTERFACES"
+
+  if ! setup_family 4; then
+    cleanup_family 4
+    return 1
+  fi
+  verify_rules 4
+
+  if [ "$PROXY_IPV6" = "1" ]; then
+    if [ "$HAS_IP6TABLES" != "1" ]; then
+      log "WARN" "缺少 ip6tables，IPv6 流量不会被代理"
+    elif setup_family 6; then
+      verify_rules 6
+    else
+      cleanup_family 6
+      log "WARN" "IPv6 透明代理加载失败，已回滚；IPv6 流量不会被代理"
+    fi
+  else
+    log "INFO" "PROXY_IPV6=0，IPv6 流量不经过代理"
+  fi
 
   log "INFO" "透明代理启动完成"
 }

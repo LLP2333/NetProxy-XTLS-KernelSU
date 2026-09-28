@@ -294,7 +294,7 @@ cleanup() {
 # 主流程
 ################################################################################
 
-print_title "NetProxy - Xray TUN 透明代理"
+print_title "NetProxy - Xray TPROXY 透明代理"
 
 unzip -o "$ZIPFILE" "module.prop" -d "$TMPDIR" > /dev/null 2>&1
 ui_print "  版本: $(grep_prop version "$TMPDIR/module.prop" 2> /dev/null || echo "未知")"

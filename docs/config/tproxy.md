@@ -1,89 +1,81 @@
-# tproxy.conf
+# 透明代理配置
 
-`tproxy.conf` 是 NetProxy 的透明代理主配置，位于：
-
-```text
-/data/adb/modules/netproxy/config/tproxy/tproxy.conf
-```
-
-它负责决定哪些 Android 系统流量进入 Xray，以及如何处理接口、DNS、分应用代理和 iptables 标记。
-
-## 关键默认项
-
-### 核心绕过
+透明代理由 `scripts/network/tproxy.sh` 实现，配置项位于 [module.conf](./module.md)：
 
 ```text
-CORE_USER_GROUP="root:net_admin"
-ROUTING_MARK="2"
-FORCE_MARK_BYPASS=0
+/data/adb/modules/netproxy/config/module.conf
 ```
 
-Xray 以 `root:net_admin` 运行。透明代理脚本会优先通过 owner 规则绕过 Xray 自己发出的连接；`ROUTING_MARK="2"` 是 fallback，必须和 Xray 出站 `sockopt.mark` 一致。
+服务启动时加载规则，停止时清理。修改下列任何一项后都需要重启服务。
 
-### 监听端口
+## 端口
 
 ```text
-PROXY_TCP_PORT="1536"
-PROXY_UDP_PORT="1536"
-DNS_PORT="1536"
+TPROXY_PORT=12345
 ```
 
-这三项必须和 Xray `tproxy-in` 入站端口一致。
+流量被 TPROXY 送到这个端口，必须与 Xray 配置中 `dokodemo-door`（或 `tunnel`）入站的 `port` 一致，且该入站需要：
 
-### 代理模式
+```json
+"settings": { "network": "tcp,udp", "followRedirect": true },
+"streamSettings": { "sockopt": { "tproxy": "tproxy" } }
+```
+
+WebUI 保存配置时会检查这一点。
+
+## IPv6
 
 ```text
-PROXY_MODE=1
+PROXY_IPV6=1
 ```
 
-含义：
+- `1`：同时用 ip6tables 接管 IPv6 的 TCP/UDP。内核不支持 IPv6 TPROXY 或缺少 `ip6tables` 时，会自动回滚 IPv6 规则、仅代理 IPv4，并在 `service.log` 中记录警告。
+- `0`：IPv6 流量不经过 Xray，直接出网。
 
-- `0`：自动检测 TProxy，不支持时回退 REDIRECT。
-- `1`：强制 TProxy。
-- `2`：强制 REDIRECT。
+Xray 默认监听地址是双栈的，dokodemo-door 入站不需要额外修改即可接收 IPv6 流量。
 
-默认强制 TProxy，因为默认 Xray 入站配置为 `"tproxy": "tproxy"`。
-
-### DNS
+## 热点与 USB 共享
 
 ```text
-DNS_HIJACK_ENABLE=1
+PROXY_HOTSPOT=1
+HOTSPOT_INTERFACES="wlan2 ap+ swlan0 rndis+ ncm+"
 ```
 
-DNS 流量会进入 Xray，再由 Xray routing 送到 `dns-out`。
+`PROXY_HOTSPOT=1` 时，从这些下游接口进入的流量也会交给 Xray。接口名因设备而异，可以用 `ip addr` 查看开热点后新出现的接口；支持 iptables 通配符 `+`（如 `rndis+` 匹配 `rndis0`）。
 
-### 协议与接口
+只有本机回环（`lo`）和这里列出的接口会被劫持；移动数据、WiFi 等上游接口进入的入站连接不受影响。
+
+## 分应用代理
 
 ```text
-PROXY_MOBILE=1
-PROXY_WIFI=1
-PROXY_HOTSPOT=0
-PROXY_USB=0
-PROXY_TCP=1
-PROXY_UDP=1
-PROXY_IPV6=0
+APP_PROXY_MODE=off
+APP_PROXY_LIST=""
 ```
 
-IPv6 默认不代理，但不会强制关闭系统 IPv6 栈。
+- `off`：所有应用都走代理。
+- `blacklist`：列表内的应用不走代理。
+- `whitelist`：只有列表内的应用走代理。
 
-### 分应用代理
+列表用空格或英文逗号分隔，每项为 `包名` 或 `用户ID:包名`：
 
 ```text
-APP_PROXY_ENABLE=1
-APP_PROXY_MODE="blacklist"
-PROXY_APPS_LIST=""
-BYPASS_APPS_LIST=""
+APP_PROXY_LIST="com.tencent.mm,10:com.android.chrome"
 ```
 
-可以通过 CLI 修改。
+不写用户 ID 时表示主用户 `0`；工作资料、应用分身通常是 `10`、`999` 等。启动时通过 `/data/system/packages.list` 解析 UID，找不到的包名会在 `service.log` 中警告。应用重装后 UID 可能变化，需要重启服务。
 
-### 其他控制
+分应用只作用于本机应用；热点下游设备不受影响。
 
-```text
-BYPASS_CN_IP=0
-BLOCK_QUIC=1
-PERFORMANCE_MODE=0
-LOG_TIMESTAMP=0
+## 固定行为
+
+以下行为不提供开关：
+
+- **防回环**：Xray 以 `root:net_admin` 运行，该 uid/gid 发出的流量不会被劫持。
+- **保留地址绕过**：局域网、回环、链路本地、组播等地址不走代理。例外是发往这些地址的 **UDP 53**（例如 WiFi 下发往路由器的 DNS），它仍会进入 Xray，由路由规则交给 `dns-out`，避免 DNS 绕过代理。回环地址完全不处理。
+- **标记与路由表**：fwmark `20`，路由表 `100`，IPv4 与 IPv6 共用。
+
+排查时可查看当前规则：
+
+```sh
+su -c 'iptables -t mangle -S PROXY_OUTPUT; ip6tables -t mangle -S PROXY_OUTPUT; ip rule; ip -6 rule'
 ```
-
-`BYPASS_CN_IP` 是透明代理层 IP 绕过，不等同于 Xray 的域名路由。更细的分流写在 `config/xray/config.json`。
