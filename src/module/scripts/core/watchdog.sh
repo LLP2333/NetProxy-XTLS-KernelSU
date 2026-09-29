@@ -81,6 +81,8 @@ main() {
   local elapsed=0
 
   mkdir -p "$RUN_DIR" 2> /dev/null || true
+  # 看门狗自身也不能留在应用 cgroup 中，否则会与 Xray 一起被冻结
+  move_to_root_cgroup "$$"
   printf '%s\n' "$$" > "$PID_FILE"
   log "INFO" "看门狗已启动 (PID: $$，检查间隔 ${CHECK_INTERVAL}s)"
 

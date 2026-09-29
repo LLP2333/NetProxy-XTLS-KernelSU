@@ -126,7 +126,11 @@ watchdog_pid() {
 }
 
 start_watchdog() {
-  if [ -n "$(watchdog_pid)" ]; then
+  local pid
+
+  pid="$(watchdog_pid)"
+  if [ -n "$pid" ]; then
+    move_to_root_cgroup "$pid"
     return 0
   fi
   if [ ! -f "$WATCHDOG_SCRIPT" ]; then
@@ -183,14 +187,23 @@ prepare_logs() {
 # 启动服务
 #######################################
 do_start() {
-  local pid new_pid
+  local pid new_pid cgroup
 
   log "INFO" "========== 开始启动 Xray 服务 =========="
   verify_environment start
 
+  # 先让本脚本脱离应用 cgroup，之后启动的 Xray 与看门狗都会在根组中
+  cgroup="$(current_cgroup)"
+  move_to_root_cgroup "$$"
+  case "$cgroup" in
+    /apps/* | /uid_*) log "INFO" "已脱离应用 cgroup（${cgroup}），避免 Xray 随应用被冻结或关闭" ;;
+  esac
+
   pid="$(get_pid "$XRAY_BIN")"
   if [ -n "$pid" ]; then
     log "WARN" "Xray 已在运行中 (PID: $pid)"
+    # 旧版本从 WebUI 启动的进程可能仍在应用 cgroup 中（已被冻结），一并移出
+    move_to_root_cgroup "$pid"
     start_watchdog
     return 0
   fi
@@ -210,6 +223,8 @@ do_start() {
   nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" >> "$XRAY_STDOUT_LOG" 2>&1 &
 
   new_pid=$!
+  # 本脚本已在根组，这里再显式移动一次，确保 Xray 不受应用 cgroup 影响
+  move_to_root_cgroup "$new_pid"
 
   wait_for_startup "$new_pid"
   case $? in

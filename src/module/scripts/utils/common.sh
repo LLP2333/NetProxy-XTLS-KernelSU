@@ -262,3 +262,29 @@ read_pid_file() {
   tr '\0' ' ' < "/proc/$pid/cmdline" 2> /dev/null | grep -q -- "$keyword" || return 1
   printf '%s\n' "$pid"
 }
+
+#######################################
+# 当前所在的 cgroup v2 路径（如 /apps/uid_10357/pid_7989）
+#######################################
+current_cgroup() {
+  awk -F: '$1 == "0" { print $3 }' "/proc/${1:-$$}/cgroup" 2> /dev/null
+}
+
+#######################################
+# 将进程移入各 cgroup 层级的根组
+# 从 WebUI / 模块管理器启动服务时，进程会继承管理器应用的 cgroup
+# （/apps/uid_x/pid_y）。应用退到后台时系统会冻结该 cgroup，Xray 随之被冻结、
+# 不再处理连接，表现为整机断网；应用被关闭时整个 cgroup 的进程也会被杀。
+# 移入根组后，之后启动的子进程（Xray、看门狗）也都在根组中。
+# 同时处理 cgroup v1 的内存、CPU 等层级，避免继承应用的后台限制。
+#######################################
+move_to_root_cgroup() {
+  local pid="${1:-$$}"
+  local procs
+
+  for procs in /sys/fs/cgroup/cgroup.procs /dev/memcg/cgroup.procs \
+    /dev/cpuset/cgroup.procs /dev/cpuctl/cgroup.procs /dev/blkio/cgroup.procs; do
+    [ -w "$procs" ] || continue
+    echo "$pid" > "$procs" 2> /dev/null || true
+  done
+}
