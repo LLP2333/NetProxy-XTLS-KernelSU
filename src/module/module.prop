@@ -1,7 +1,7 @@
 id=netproxy
 name=NetProxy
-version=v7.3.0
-versionCode=592
+version=v7.4.0
+versionCode=594
 author=LLP2333 & Fanju
 description=基于 Xray-core 的 Android 透明代理工具
 updateJson=https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest/download/update.json
