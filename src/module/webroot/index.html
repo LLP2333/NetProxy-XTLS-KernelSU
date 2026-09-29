@@ -279,7 +279,7 @@
       <div class="card">
         <div class="row">
           <select id="log-target">
-            <option value="service">模块日志 · service.log</option>
+            <option value="service">service.log</option>
           </select>
           <input type="number" id="log-lines" value="200" min="10" max="5000" step="50" aria-label="行数" />
           <button type="button" class="btn" id="log-refresh">刷新</button>
@@ -849,7 +849,9 @@
       for (const t of logTargets) {
         const opt = document.createElement('option')
         opt.value = t.id
-        opt.textContent = `${t.label} · ${t.path.split('/').pop()}`
+        // 只显示文件名；日志类型放在提示里
+        opt.textContent = t.path.split('/').pop()
+        opt.title = t.label
         sel.append(opt)
       }
       sel.value = logTargets.some(t => t.id === prev) ? prev : logTargets[0].id
