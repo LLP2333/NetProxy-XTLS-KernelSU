@@ -4,6 +4,8 @@
 
 通过 iptables TPROXY + dokodemo-door 入站实现全局流量劫持，支持 TCP、UDP、DNS 透明代理。
 
+> 本项目基于 [Fanju](https://github.com/Fanju6) 的 [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) 修改而来，将代理核心从 sing-box 替换为 Xray-core。
+
 ## 功能范围
 
 - 内置 Xray-core Android arm64 二进制。
@@ -142,6 +144,10 @@ https://github.com/XTLS/Xray-core/releases
 
 - [Xray-core releases](https://github.com/XTLS/Xray-core/releases)
 - [Xray dokodemo-door 文档](https://xtls.github.io/config/inbounds/dokodemo.html)
+
+## 致谢
+
+感谢 [Fanju](https://github.com/Fanju6) 及 [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) 项目的全体贡献者。本项目的模块框架、安装与升级脚本、透明代理方案和文档结构都源自 NetProxy-Magisk，没有原项目的工作就没有本项目。如果你使用 sing-box，推荐直接使用原项目。
 
 ## License
 

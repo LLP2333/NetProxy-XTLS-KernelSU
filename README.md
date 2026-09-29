@@ -4,6 +4,8 @@ Android system-level transparent proxy module based on **Xray-core**.
 
 Intercepts all traffic via iptables TPROXY + dokodemo-door inbound, supporting TCP, UDP, and DNS transparent proxying.
 
+> This project is derived from [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) by [Fanju](https://github.com/Fanju6), with the proxy core switched from sing-box to Xray-core.
+
 ## Features
 
 - Bundled Xray-core Android arm64 binary.
@@ -155,6 +157,10 @@ Place the files from the release archive into the corresponding module paths:
 
 - [Xray-core releases](https://github.com/XTLS/Xray-core/releases)
 - [Xray dokodemo-door documentation](https://xtls.github.io/config/inbounds/dokodemo.html)
+
+## Acknowledgements
+
+Many thanks to [Fanju](https://github.com/Fanju6) and all contributors of [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk). The module framework, install/upgrade scripts, transparent proxy approach, and documentation structure of this project all come from NetProxy-Magisk — this project would not exist without it. If you use sing-box, the original project is recommended.
 
 ## License
 
