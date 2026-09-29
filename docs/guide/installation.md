@@ -10,7 +10,7 @@
 
 ## 安装模块
 
-1. 从 [NetProxy Releases](https://github.com/Fanju6/NetProxy-Magisk/releases) 下载模块 ZIP。
+1. 从 [NetProxy Releases](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases) 下载模块 ZIP。
 2. 在 Magisk、KernelSU 或 APatch 中刷入模块。
 3. 重启设备。
 4. 编辑 `/data/adb/modules/netproxy/config/xray/config.json`。

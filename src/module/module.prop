@@ -1,6 +1,6 @@
 id=netproxy
 name=NetProxy
-version=v7.1.0
-versionCode=562
-author=Fanju
+version=v7.2.0
+versionCode=589
+author=LLP2333 & Fanju
 description=基于 Xray-core 的 Android 透明代理工具

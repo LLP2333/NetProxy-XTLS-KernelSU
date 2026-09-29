@@ -1,8 +1,13 @@
 {
     "metamodule": false,
     "summary": "基于 Xray-core 的 Android 透明代理模块。 / Xray-core based transparent proxy module for Android.",
-    "sourceUrl": "https://github.com/Fanju6/NetProxy-Magisk",
+    "sourceUrl": "https://github.com/LLP2333/NetProxy-XTLS-KernelSU",
     "additionalAuthors": [
+        {
+            "type": "add",
+            "name": "LLP2333",
+            "link": "https://github.com/LLP2333"
+        },
         {
             "type": "add",
             "name": "Fanju",

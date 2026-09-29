@@ -1,6 +1,6 @@
 {
-	"version": "Module v7.0.1",
-	"versionCode": 562,
-	"zipUrl": "https://github.com/Fanju6/NetProxy-Magisk/releases/download/v7.0.1/NetProxy-Module.zip",
-	"changelog": "https://raw.githubusercontent.com/Fanju6/NetProxy-Magisk/refs/heads/main/changelog.md"
+	"version": "v7.2.0",
+	"versionCode": 589,
+	"zipUrl": "https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/download/v7.2.0/NetProxy_v7.2.0_589.zip",
+	"changelog": "https://raw.githubusercontent.com/LLP2333/NetProxy-XTLS-KernelSU/main/.github/changelog.md"
 }

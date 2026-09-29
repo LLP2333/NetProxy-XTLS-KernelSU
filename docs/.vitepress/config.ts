@@ -24,7 +24,7 @@ export default defineConfig({
     nav: [
       { text: '指南', link: '/guide/introduction' },
       { text: '配置参考', link: '/config/module' },
-      { text: 'GitHub', link: 'https://github.com/Fanju6/NetProxy-Magisk' }
+      { text: 'GitHub', link: 'https://github.com/LLP2333/NetProxy-XTLS-KernelSU' }
     ],
 
     sidebar: {
@@ -66,12 +66,12 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/Fanju6/NetProxy-Magisk' }
+      { icon: 'github', link: 'https://github.com/LLP2333/NetProxy-XTLS-KernelSU' }
     ],
 
     footer: {
       message: '基于 GPL-3.0 许可证发布',
-      copyright: 'Copyright © 2024-present Fanju'
+      copyright: 'Copyright © 2024-present Fanju, LLP2333'
     },
 
     search: {

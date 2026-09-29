@@ -17,7 +17,7 @@ hero:
       link: /guide/installation
     - theme: alt
       text: GitHub
-      link: https://github.com/Fanju6/NetProxy-Magisk
+      link: https://github.com/LLP2333/NetProxy-XTLS-KernelSU
 
 features:
   - title: Xray-core
