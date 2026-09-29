@@ -68,11 +68,22 @@ jobs:
             > update.json
           cat update.json
 
+      # 只取 changelog.md 中第一个 "## " 标题到下一个 "## " 标题之间的内容（最新版本）
+      - name: 提取本版本更新日志 (Tag 触发)
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          awk '/^## /{n++} n==1' .github/changelog.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::.github/changelog.md 中没有找到 '## ' 开头的版本标题"
+            exit 1
+          fi
+          cat release_notes.md
+
       - name: 发布 GitHub Release (Tag 触发)
         if: ${{ github.ref_type == 'tag' }}
         uses: softprops/action-gh-release@v2
         with:
-          body_path: .github/changelog.md
+          body_path: release_notes.md
           files: |
             ${{ env.FULL_NAME }}
             ${{ env.MINI_NAME }}

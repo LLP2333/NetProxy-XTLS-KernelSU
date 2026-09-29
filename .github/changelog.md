@@ -1,3 +1,19 @@
+## 版本 7.3.0
+
+### 新增
+
+* **模块更新检查**：模块管理器（KernelSU / Magisk / APatch）现在可以检查并提示新版本，更新地址指向本项目的 GitHub Release。
+
+### 变更
+
+* 发布包只保留完整包与纯脚本包（mini），移除与完整包内容相同的 lite 包。
+* README 增加对原项目 [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) 及作者 Fanju 的致谢。
+
+### 升级说明
+
+* 从 7.2.0 及更早版本升级需要手动安装一次本版本，之后的新版本即可在模块管理器中收到更新提示。
+* 可直接覆盖安装，`module.conf`、`config.json`、`bin/xray` 与 geo 数据会保留。
+
 ## 版本 7.2.0
 
 ### 新增
