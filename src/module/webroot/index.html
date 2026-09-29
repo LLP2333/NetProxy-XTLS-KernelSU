@@ -136,7 +136,8 @@
     }
     input[type=number] { width: 90px; }
     label.inline { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
-    #log-view { max-height: none; min-height: 50vh; }
+    /* 日志框高度由 JS 按剩余视口计算：页面本身不滚动，工具栏固定，只有日志在框内滚动 */
+    #log-view { max-height: none; min-height: 160px; overscroll-behavior: contain; }
     .banner {
       background: var(--surface-2); border: 1px solid var(--warn); color: var(--warn);
       border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; font-size: 14px;
@@ -281,7 +282,7 @@
           <label class="inline"><input type="checkbox" id="log-auto" /> 自动刷新</label>
           <label class="inline"><input type="checkbox" id="log-wrap" /> 自动换行</label>
         </div>
-        <pre id="log-view" class="out"></pre>
+        <pre id="log-view" class="out">加载中…</pre>
       </div>
     </section>
   </main>
@@ -371,17 +372,19 @@
     }
 
     // 大块输出（日志、配置）：编码成单行 base64，spawn 只回调一次而不是每行一次。
-    // printf x 保留末尾换行；子 shell 以原命令的退出码退出。
+    // printf x 保留末尾换行；最后用 (exit $__c) 在子 shell 里设置退出码。
+    // 不能在顶层 exit：KernelSU 通过 libsu 在命令后追加结束标记来取退出码，
+    // 顶层 exit 会杀掉 shell，libsu 读不到标记，退出码恒为 1。
     async function execBulk(cmd) {
-      const r = await exec(`__o=$(${cmd}; __c=$?; printf x; exit $__c); __c=$?; printf '%s' "\${__o%x}" | base64 | tr -d '\\n'; exit $__c`)
-      let text = ''
+      const r = await exec(`__o=$(${cmd}; __c=$?; printf x; exit $__c); __c=$?; printf '%s' "\${__o%x}" | base64 | tr -d '\\n'; (exit $__c)`)
+      const payload = r.out.trim()
       try {
-        const bin = atob(r.out.trim())
-        text = new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)))
+        const bin = atob(payload)
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bin, c => c.charCodeAt(0)))
+        return { code: r.code, text: text + (r.err ? '\n' + r.err : '') }
       } catch {
-        text = r.out
+        return { code: r.code || -1, text: `无法解码命令输出\n${r.err || payload.slice(0, 200)}` }
       }
-      return { code: r.code, text: text + (r.err ? '\n' + r.err : '') }
     }
 
     const shq = v => `'${String(v).replace(/'/g, `'"'"'`)}'`
@@ -652,7 +655,11 @@
     async function loadConfig() {
       const r = await execBulk(`${CLI} xray show 2>&1`)
       if (r.code !== 0) {
-        setMsg(cfgMsg, stripAnsi(r.text).trim() || '读取配置失败', 'err')
+        setMsg(cfgMsg, '读取配置失败: ' + (stripAnsi(r.text).trim() || `退出码 ${r.code}`), 'err')
+        return
+      }
+      if (!r.text.trim()) {
+        setMsg(cfgMsg, '读取到的配置为空，未载入编辑器', 'err')
         return
       }
       editor.value = r.text
@@ -673,6 +680,9 @@
     }
 
     function parseEditor() {
+      if (!editor.value.trim()) {
+        return { ok: false, error: '编辑器为空：配置尚未成功载入，请点击「重新加载」' }
+      }
       try {
         return { ok: true, value: JSON.parse(editor.value) }
       } catch (e) {
@@ -785,6 +795,19 @@
       view.dataset.loaded = '1'
     }
 
+    // 让日志框正好填满视口剩余高度（扣除卡片内边距和页面底部留白）
+    function fitLogView() {
+      if (currentTab !== 'logs') return
+      const view = $('#log-view')
+      const card = view.closest('.card')
+      const below = (card.getBoundingClientRect().bottom - view.getBoundingClientRect().bottom) +
+        parseFloat(getComputedStyle(card).marginBottom) +
+        parseFloat(getComputedStyle($('main')).paddingBottom)
+      const top = view.getBoundingClientRect().top + window.scrollY
+      view.style.height = Math.max(160, Math.floor(window.innerHeight - top - below)) + 'px'
+    }
+    window.addEventListener('resize', fitLogView)
+
     function setLogPolling() {
       clearInterval(logTimer)
       logTimer = null
@@ -804,7 +827,11 @@
       $$('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab))
       for (const name of ['status', 'config', 'logs']) $('#tab-' + name).hidden = name !== tab
       if (tab === 'config' && !configLoaded) loadConfig()
-      if (tab === 'logs') refreshLog()
+      if (tab === 'logs') {
+        window.scrollTo(0, 0)
+        fitLogView()
+        refreshLog()
+      }
       if (tab === 'status') refreshStatus()
       setLogPolling()
     }
