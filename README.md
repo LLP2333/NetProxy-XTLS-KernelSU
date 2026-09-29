@@ -29,19 +29,22 @@ src/module/
 │     ├─ geoip.dat
 │     └─ geosite.dat
 ├─ scripts/
-│  ├─ cli                     # CLI entry (service/xray subcommands)
+│  ├─ cli                     # CLI entry (service/xray/geo/conf subcommands)
 │  ├─ core/
-│  │  └─ service.sh           # Service start/stop core logic
+│  │  ├─ service.sh           # Service start/stop core logic
+│  │  ├─ watchdog.sh          # Watchdog: clears rules and restarts if Xray exits unexpectedly
+│  │  └─ geo_update.sh        # Online geoip/geosite update
 │  ├─ network/
 │  │  └─ tproxy.sh            # iptables TPROXY rule management
 │  └─ utils/
 │     ├─ common.sh            # Logging, path, and common utilities
 │     └─ config.sh            # Config read/write helpers
+├─ webroot/                    # KernelSU WebUI
 ├─ logs/                       # Runtime logs (auto-generated)
+├─ run/                        # Runtime state: PIDs, rule files, etc. (auto-generated)
 ├─ action.sh                   # Module manager "Action" button script
 ├─ customize.sh                # Install/upgrade script
 ├─ module.prop                 # Module metadata (name, version, etc.)
-├─ post-fs-data.sh             # Early boot initialization
 └─ service.sh                  # Boot service entry (AUTO_START)
 ```
 

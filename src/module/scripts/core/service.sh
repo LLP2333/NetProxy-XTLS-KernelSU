@@ -13,11 +13,17 @@ readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
 readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
+readonly WATCHDOG_SCRIPT="$MODDIR/scripts/core/watchdog.sh"
+readonly RUN_DIR="$MODDIR/run"
+readonly WATCHDOG_PID_FILE="$RUN_DIR/watchdog.pid"
 
 # SIGTERM 等待超时（秒），超时后升级为 SIGKILL
 readonly KILL_TIMEOUT=5
-# 启动后等待进程存活的检查次数（每次间隔 1 秒）
-readonly STARTUP_CHECK_COUNT=3
+# 等待 Xray 监听透明代理端口的最长时间（秒）
+readonly STARTUP_TIMEOUT=10
+# service.log 超过该大小（字节）时轮转为 service.log.1
+readonly LOG_MAX_BYTES=1048576
+readonly DEFAULT_TPROXY_PORT=12345
 # 启动失败时随同错误日志附带的 xray.log 末尾行数
 readonly XRAY_LOG_TAIL_LINES=20
 
@@ -29,6 +35,7 @@ export PATH="$MODDIR/bin:$PATH"
 readonly BUSYBOX="$(detect_busybox)"
 
 XRAY_CONFIG="$DEFAULT_XRAY_CONFIG"
+TPROXY_PORT="$DEFAULT_TPROXY_PORT"
 
 #######################################
 # 加载服务配置
@@ -36,6 +43,11 @@ XRAY_CONFIG="$DEFAULT_XRAY_CONFIG"
 load_service_config() {
   XRAY_CONFIG="$(read_conf "$MODULE_CONF" "XRAY_CONFIG" "$DEFAULT_XRAY_CONFIG")"
   [ -n "$XRAY_CONFIG" ] || XRAY_CONFIG="$DEFAULT_XRAY_CONFIG"
+
+  TPROXY_PORT="$(read_conf "$MODULE_CONF" "TPROXY_PORT" "$DEFAULT_TPROXY_PORT")"
+  case "$TPROXY_PORT" in
+    '' | *[!0-9]*) TPROXY_PORT="$DEFAULT_TPROXY_PORT" ;;
+  esac
 }
 
 #######################################
@@ -56,6 +68,7 @@ verify_environment() {
   fi
 
   ensure_dir "$MODDIR/logs" "无法创建日志目录: $MODDIR/logs"
+  ensure_dir "$RUN_DIR" "无法创建运行时目录: $RUN_DIR"
 }
 
 #######################################
@@ -89,20 +102,49 @@ log_xray_tail() {
 }
 
 #######################################
-# 等待进程存活确认
-# 连续检查 $STARTUP_CHECK_COUNT 次（每次 1 秒），
-# 如果进程提前退出则认为启动失败
+# 等待 Xray 就绪：透明代理端口进入监听状态即返回，不再固定等待
+# 返回值: 0=就绪  1=进程已退出  2=超时（进程还在但端口未监听）
 #######################################
-wait_for_process() {
-  local pid="$1" check=0
+wait_for_startup() {
+  local pid="$1" tick=0
 
-  while [ "$check" -lt "$STARTUP_CHECK_COUNT" ]; do
-    sleep 1
-    if ! kill -0 "$pid" 2> /dev/null; then
-      return 1
-    fi
-    check=$((check + 1))
+  while [ "$tick" -lt $((STARTUP_TIMEOUT * 2)) ]; do
+    kill -0 "$pid" 2> /dev/null || return 1
+    is_tcp_port_listening "$TPROXY_PORT" && return 0
+    sleep 0.5
+    tick=$((tick + 1))
   done
+  kill -0 "$pid" 2> /dev/null || return 1
+  return 2
+}
+
+#######################################
+# 看门狗：Xray 意外退出时清理规则，避免断网
+#######################################
+watchdog_pid() {
+  read_pid_file "$WATCHDOG_PID_FILE" "watchdog.sh"
+}
+
+start_watchdog() {
+  if [ -n "$(watchdog_pid)" ]; then
+    return 0
+  fi
+  if [ ! -f "$WATCHDOG_SCRIPT" ]; then
+    log "WARN" "看门狗脚本不存在，跳过: $WATCHDOG_SCRIPT"
+    return 0
+  fi
+  nohup sh "$WATCHDOG_SCRIPT" > /dev/null 2>&1 &
+  log "INFO" "看门狗已启动 (PID: $!)"
+}
+
+stop_watchdog() {
+  local pid
+
+  pid="$(watchdog_pid)"
+  rm -f "$WATCHDOG_PID_FILE"
+  [ -n "$pid" ] || return 0
+  kill "$pid" 2> /dev/null || true
+  log "INFO" "看门狗已停止 (PID: $pid)"
 }
 
 #######################################
@@ -117,9 +159,11 @@ do_start() {
   pid="$(get_pid "$XRAY_BIN")"
   if [ -n "$pid" ]; then
     log "WARN" "Xray 已在运行中 (PID: $pid)"
+    start_watchdog
     return 0
   fi
 
+  rotate_log "$LOG_FILE" "$LOG_MAX_BYTES"
   log_xray_version
 
   log "INFO" "Xray 配置文件: $XRAY_CONFIG"
@@ -129,17 +173,30 @@ do_start() {
   export XRAY_LOCATION_ASSET="$XRAY_DIR"
   export XRAY_LOCATION_CONFIG="$XRAY_DIR"
 
+  # 保留上一次运行的日志，便于排查崩溃原因
+  [ -f "$XRAY_LOG_FILE" ] && mv -f "$XRAY_LOG_FILE" "$XRAY_LOG_FILE.1"
+
   cd "$XRAY_DIR" || die "无法进入 Xray 配置目录: $XRAY_DIR"
-  nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" > "$XRAY_LOG_FILE" 2>&1 &
+  # 追加方式打开：Xray 的 error 日志若也指向该文件（O_APPEND），两者不会互相覆盖
+  nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" >> "$XRAY_LOG_FILE" 2>&1 &
 
   new_pid=$!
 
-  if ! wait_for_process "$new_pid"; then
-    log_xray_tail
-    die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
-  fi
+  wait_for_startup "$new_pid"
+  case $? in
+    0) ;;
+    1)
+      log_xray_tail
+      die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
+      ;;
+    *)
+      kill "$new_pid" 2> /dev/null || true
+      log_xray_tail
+      die "Xray 在 ${STARTUP_TIMEOUT} 秒内未监听端口 ${TPROXY_PORT}，请检查透明代理入站端口是否与 module.conf 的 TPROXY_PORT 一致"
+      ;;
+  esac
 
-  log "INFO" "Xray 启动成功 (PID: $new_pid)"
+  log "INFO" "Xray 启动成功 (PID: $new_pid，端口 $TPROXY_PORT 已监听)"
 
   log "INFO" "正在加载透明代理规则..."
   if ! "$TPROXY_SCRIPT" start >> "$LOG_FILE" 2>&1; then
@@ -147,6 +204,7 @@ do_start() {
     die "透明代理规则加载失败，已停止 Xray 进程"
   fi
 
+  start_watchdog
   log "INFO" "========== Xray 服务启动完成 =========="
 }
 
@@ -160,6 +218,9 @@ do_stop() {
 
   log "INFO" "========== 开始停止 Xray 服务 =========="
   verify_environment stop
+
+  # 先停看门狗，避免它把主动停止误判为崩溃并重启
+  stop_watchdog
 
   if [ -f "$TPROXY_SCRIPT" ]; then
     "$TPROXY_SCRIPT" stop >> "$LOG_FILE" 2>&1 || true
@@ -218,6 +279,11 @@ do_status() {
     fi
     version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
     [ -n "$version" ] && printf "内核版本: %s\n" "$version"
+    if [ -n "$(watchdog_pid)" ]; then
+      printf "看门狗: 运行中\n"
+    else
+      printf "看门狗: 未运行\n"
+    fi
     return 0
   fi
 

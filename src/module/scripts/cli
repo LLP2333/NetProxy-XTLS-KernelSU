@@ -19,9 +19,12 @@ readonly SERVICE_SCRIPT="$SCRIPTS_DIR/core/service.sh"
 readonly GEO_UPDATE_SCRIPT="$SCRIPTS_DIR/core/geo_update.sh"
 readonly GEOIP_FILE="$XRAY_DIR/geoip.dat"
 readonly GEOSITE_FILE="$XRAY_DIR/geosite.dat"
+readonly RUN_DIR="$MODDIR/run"
+readonly WATCHDOG_PID_FILE="$RUN_DIR/watchdog.pid"
+readonly VERSION_CACHE="$RUN_DIR/xray_version"
 
 # 允许通过 cli conf 读写的 module.conf 键（均为 0/1 开关）
-readonly CONF_SWITCH_KEYS="AUTO_START PROXY_IPV6 PROXY_HOTSPOT"
+readonly CONF_SWITCH_KEYS="AUTO_START PROXY_IPV6 PROXY_HOTSPOT WATCHDOG_RESTART"
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -130,27 +133,52 @@ tproxy_active() {
   command iptables -w 100 -t mangle -nL PROXY_PREROUTING > /dev/null 2>&1
 }
 
+watchdog_running() {
+  [ -n "$(read_pid_file "$WATCHDOG_PID_FILE" "watchdog.sh")" ]
+}
+
+# Xray 版本号：按二进制的大小和修改时间缓存，避免 WebUI 每次轮询都启动一次 xray
+xray_version() {
+  local key cached
+
+  [ -x "$XRAY_BIN" ] || return 0
+  key="$(ls -l "$XRAY_BIN" 2> /dev/null | awk '{print $5, $6, $7, $8}')"
+  if [ -f "$VERSION_CACHE" ]; then
+    cached="$(head -n 1 "$VERSION_CACHE" 2> /dev/null || true)"
+    if [ -n "$key" ] && [ "$cached" = "$key" ]; then
+      sed -n '2p' "$VERSION_CACHE"
+      return 0
+    fi
+  fi
+
+  cached="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
+  if [ -n "$cached" ] && mkdir -p "$RUN_DIR" 2> /dev/null; then
+    printf '%s\n%s\n' "$key" "$cached" > "$VERSION_CACHE" 2> /dev/null || true
+  fi
+  printf '%s\n' "$cached"
+}
+
 # 单行 JSON，供 WebUI 解析
 cmd_service_status_json() {
-  local pid running="false" uptime=0 version="" config tproxy="false"
+  local pid running="false" uptime=0 version="" config tproxy="false" watchdog="false"
 
   pid="$(get_pid "$XRAY_BIN")"
   if [ -n "$pid" ]; then
     running="true"
     uptime="$(get_process_uptime "$pid" || true)"
   fi
-  if [ -x "$XRAY_BIN" ]; then
-    version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
-  fi
+  version="$(xray_version)"
   tproxy_active && tproxy="true"
+  watchdog_running && watchdog="true"
   config="$(read_xray_config)"
 
-  printf '{"running":%s,"pid":"%s","uptime":%s,"version":"%s","config":"%s","tproxy":%s,"tproxy_port":"%s","auto_start":"%s","proxy_ipv6":"%s","proxy_hotspot":"%s","app_proxy_mode":"%s"}\n' \
-    "$running" "$pid" "${uptime:-0}" "$(json_escape "$version")" "$(json_escape "$config")" "$tproxy" \
+  printf '{"running":%s,"pid":"%s","uptime":%s,"version":"%s","config":"%s","tproxy":%s,"watchdog":%s,"tproxy_port":"%s","auto_start":"%s","proxy_ipv6":"%s","proxy_hotspot":"%s","watchdog_restart":"%s","app_proxy_mode":"%s"}\n' \
+    "$running" "$pid" "${uptime:-0}" "$(json_escape "$version")" "$(json_escape "$config")" "$tproxy" "$watchdog" \
     "$(json_escape "$(read_conf "$MODULE_CONF" "TPROXY_PORT" "12345")")" \
     "$(read_conf "$MODULE_CONF" "AUTO_START" "1")" \
     "$(read_conf "$MODULE_CONF" "PROXY_IPV6" "1")" \
     "$(read_conf "$MODULE_CONF" "PROXY_HOTSPOT" "1")" \
+    "$(read_conf "$MODULE_CONF" "WATCHDOG_RESTART" "1")" \
     "$(json_escape "$(read_conf "$MODULE_CONF" "APP_PROXY_MODE" "off")")"
 }
 
@@ -169,6 +197,11 @@ cmd_service_status() {
     printf "运行状态: %s运行中%s\n" "$GREEN" "$NC"
     printf "进程 PID: %s\n" "$pid"
     printf "运行时间: %s 秒\n" "$(get_process_uptime "$pid")"
+    if watchdog_running; then
+      printf "看门狗  : 运行中\n"
+    else
+      printf "看门狗  : %s未运行%s\n" "$YELLOW" "$NC"
+    fi
   else
     printf "运行状态: %s未运行%s\n" "$RED" "$NC"
   fi
@@ -178,7 +211,7 @@ cmd_service_status() {
   printf "Xray 配置: %s\n" "$config"
 
   if [ -x "$XRAY_BIN" ]; then
-    version="$("$XRAY_BIN" version 2> /dev/null | head -1 || true)"
+    version="$(xray_version)"
     [ -n "$version" ] && printf "内核版本: %s\n" "$version"
   fi
 }

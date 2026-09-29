@@ -32,17 +32,19 @@ src/module/
 │  ├─ cli                     # CLI 入口（service/xray/geo 子命令）
 │  ├─ core/
 │  │  ├─ service.sh           # 服务启停核心逻辑
+│  │  ├─ watchdog.sh          # 看门狗：Xray 意外退出时清理规则并按需重启
 │  │  └─ geo_update.sh        # 在线更新 geoip/geosite
 │  ├─ network/
 │  │  └─ tproxy.sh            # iptables TPROXY 规则管理
 │  └─ utils/
 │     ├─ common.sh            # 日志、路径等公共函数
 │     └─ config.sh            # 配置读写工具
+├─ webroot/                    # KernelSU WebUI
 ├─ logs/                       # 运行时日志（自动生成）
+├─ run/                        # 运行时状态：PID、规则文件等（自动生成）
 ├─ action.sh                   # 模块管理器"操作"按钮脚本
 ├─ customize.sh                # 安装/升级脚本
 ├─ module.prop                 # 模块元信息（名称、版本等）
-├─ post-fs-data.sh             # 开机早期初始化
 └─ service.sh                  # 开机服务入口（AUTO_START）
 ```
 

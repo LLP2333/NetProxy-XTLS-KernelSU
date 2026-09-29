@@ -141,3 +141,53 @@ get_process_uptime() {
 detect_primary_ipv4() {
   ip route get 1.1.1.1 2> /dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -1
 }
+
+#######################################
+# 日志轮转：文件超过上限（字节）时改名为 .1，只保留一份旧日志
+#######################################
+rotate_log() {
+  local file="$1"
+  local max="${2:-1048576}"
+  local size
+
+  [ -f "$file" ] || return 0
+  size="$(wc -c < "$file" 2> /dev/null | tr -d ' ')"
+  [ "${size:-0}" -gt "$max" ] || return 0
+  mv -f "$file" "$file.1" 2> /dev/null || true
+}
+
+#######################################
+# 检查本机 TCP 端口是否处于监听状态
+# 读取 /proc/net/tcp 与 tcp6，本地端口为十六进制、状态 0A 表示 LISTEN
+# PROC_NET_DIR 仅供测试覆盖
+#######################################
+is_tcp_port_listening() {
+  local port="$1"
+  local dir="${PROC_NET_DIR:-/proc/net}"
+  local hex
+
+  hex="$(printf '%04X' "$port" 2> /dev/null)" || return 1
+  awk -v p=":$hex" '
+    FNR > 1 && $4 == "0A" && substr($2, length($2) - 4) == p { found = 1; exit }
+    END { exit !found }
+  ' "$dir/tcp" "$dir/tcp6" 2> /dev/null
+}
+
+#######################################
+# 读取 PID 文件，并确认该进程的命令行包含指定关键字
+# 防止 PID 被系统复用后误判或误杀其他进程
+#######################################
+read_pid_file() {
+  local file="$1"
+  local keyword="$2"
+  local pid
+
+  [ -f "$file" ] || return 1
+  pid="$(head -n 1 "$file" 2> /dev/null)"
+  case "$pid" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  tr '\0' ' ' < "/proc/$pid/cmdline" 2> /dev/null | grep -q -- "$keyword" || return 1
+  printf '%s\n' "$pid"
+}

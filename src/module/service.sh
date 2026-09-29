@@ -26,19 +26,13 @@ load_module_config() {
 
 #######################################
 # 等待系统启动完成
+# 模块文件都在 /data/adb，不依赖内部存储；不等待 /sdcard，
+# 否则启用文件级加密的设备要到用户首次解锁后才会启动代理
 #######################################
 wait_for_boot() {
   log "INFO" "等待系统启动完成..."
-
-  # 等待系统开机完成
   resetprop -w sys.boot_completed
   log "INFO" "系统启动完成"
-
-  # 等待存储挂载完成
-  while [ ! -d "/sdcard/Android" ]; do
-    sleep 1
-  done
-  log "INFO" "存储挂载完成"
 }
 
 # 确保日志目录存在

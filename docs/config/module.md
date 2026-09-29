@@ -12,6 +12,8 @@
 
 ```text
 AUTO_START=1
+WATCHDOG_RESTART=1
+LOG_LEVEL=info
 
 TPROXY_PORT=12345
 PROXY_IPV6=1
@@ -31,6 +33,22 @@ GEO_UPDATE_TIMEOUT=60
 
 - `1`：开机后自动启动 NetProxy 服务。
 - `0`：开机不自动启动，需要手动执行 `cli service start`。
+
+## WATCHDOG_RESTART
+
+服务运行期间，看门狗每 5 秒检查一次 Xray 进程。Xray 意外退出时，看门狗会先清理透明代理规则，避免流量被送往无人监听的端口导致整机断网，然后：
+
+- `1`：自动重启服务。5 分钟内最多自动重启 3 次，超过后停止重试，网络保持直连，需查看 `xray.log` 排查原因。
+- `0`：不自动重启，网络保持直连。
+
+主动停止服务时会先停止看门狗，不会被误判为崩溃。
+
+## LOG_LEVEL
+
+- `info`：常规日志。
+- `debug`：额外记录 iptables 命令与完整的透明代理规则，排查规则问题时使用。
+
+`service.log` 超过 1 MB 时会在下次启动服务时轮转为 `service.log.1`；上一次运行的 `xray.log` 会保留为 `xray.log.1`。
 
 ## 透明代理
 

@@ -5,7 +5,7 @@
 # 设计原则:
 #   1. 任意一项更新成功即返回 0，全部失败返回 1；失败不影响已有文件
 #   2. 下载到临时文件 → sha256 校验 → 原子 mv 替换，保证旧文件不会损坏
-#   3. 纯 POSIX sh + curl + sha256sum/busybox sha256sum，无 bash 依赖
+#   3. 纯 POSIX sh + curl（或 busybox wget）+ sha256sum/busybox sha256sum，无 bash 依赖
 
 set -u
 
@@ -57,28 +57,45 @@ detect_sha256_cmd() {
 }
 
 #######################################
-# 用 curl 下载到指定路径
+# 下载到指定路径：优先 curl，没有时回退 busybox wget
+# （Android 正式版系统通常不带 curl）
 # 失败返回非零，调用方自行处理
 #######################################
 http_download() {
   local url="$1"
   local out="$2"
+  local busybox attempt
 
-  command_exists curl || {
-    log "WARN" "geo-update: 缺少 curl，无法下载: $url"
-    return 1
-  }
-
-  # -fSL: 失败时不输出 HTML、显示错误、跟随重定向
-  # --retry: 网络抖动时重试，与 Xray-install 行为一致
-  if curl -fSL \
-    --max-time "$TIMEOUT" \
-    --retry 3 --retry-delay 2 \
-    -H 'Cache-Control: no-cache' \
-    -o "$out" "$url"; then
-    return 0
+  if command_exists curl; then
+    # -fSL: 失败时不输出 HTML、显示错误、跟随重定向
+    # --max-time 限制单次下载，--retry-max-time 限制重试的总时长，
+    # 最坏情况约 2 × TIMEOUT 秒，避免 WebUI 长时间无响应
+    curl -fSL \
+      --connect-timeout 10 \
+      --max-time "$TIMEOUT" \
+      --retry 2 --retry-delay 2 --retry-max-time "$TIMEOUT" \
+      -H 'Cache-Control: no-cache' \
+      -o "$out" "$url"
+    return
   fi
 
+  busybox="$(detect_busybox)"
+  if ! "$busybox" wget --help > /dev/null 2>&1; then
+    log "WARN" "geo-update: 缺少 curl 与 busybox wget，无法下载: $url"
+    return 1
+  fi
+
+  # busybox wget 没有重试参数，这里最多尝试 2 次；-T 为网络读取超时
+  attempt=1
+  while [ "$attempt" -le 2 ]; do
+    rm -f "$out"
+    if "$busybox" wget -q -T "$TIMEOUT" -O "$out" "$url"; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+  rm -f "$out"
   return 1
 }
 
@@ -125,7 +142,7 @@ update_one() {
   local target_name="$2"
   local target_dir="$XRAY_ASSET_DIR"
   local target="$target_dir/$target_name"
-  local tmp_dir="$MODDIR/logs/geo_tmp.$$"
+  local tmp_dir="$MODDIR/run/geo_tmp.$$"
   local tmp_data="$tmp_dir/$target_name"
   local tmp_sum="$tmp_data.sha256sum"
 

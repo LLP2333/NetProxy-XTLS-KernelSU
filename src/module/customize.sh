@@ -6,10 +6,14 @@
 #   1. backup_config      — 备份用户配置（升级时保留）
 #   2. extract_module     — 解压模块文件到 $MODPATH
 #   3. restore_config     — 将备份的配置恢复到新模块目录
-#   4. stop_proxy_if_running — 如果代理正在运行则先停止
-#   5. sync_to_live       — 将新文件同步到运行时目录，清理旧文件
-#   6. set_permissions    — 设置可执行权限
-#   7. restart_proxy_if_needed — 如果之前在运行则重新启动
+#   4. generate_manifest  — 生成文件清单（包含恢复的用户文件）
+#   5. stop_proxy_if_running — 如果代理正在运行则先停止
+#   6. sync_to_live       — 将新文件同步到运行时目录，清理旧文件
+#   7. set_permissions    — 设置文件权限
+#   8. restart_proxy_if_needed — 如果之前在运行则重新启动
+#
+# 注意：框架会在下次开机时用 $MODPATH（modules_update）整体替换模块目录，
+# 因此所有需要保留的用户文件都必须恢复到 $MODPATH 中，而不仅是运行时目录。
 
 SKIPUNZIP=1
 
@@ -37,6 +41,10 @@ readonly PRESERVE_USER_FILES="
     config/xray/geosite.dat
 "
 
+# 用户数据目录：其中新包不包含的文件（自定义规则 dat、config.json.bak 等）
+# 视为用户文件，升级时原样保留
+readonly USER_DATA_DIRS="config"
+
 # 需要设置可执行权限的文件
 readonly EXECUTABLE_FILES="
     bin/xray
@@ -44,12 +52,13 @@ readonly EXECUTABLE_FILES="
     scripts/cli
     scripts/core/service.sh
     scripts/core/geo_update.sh
+    scripts/core/watchdog.sh
     scripts/network/tproxy.sh
 "
 
 # 运行时目录，不参与清单比对和同步（相对于模块根目录）
 # 这些目录下的文件由服务运行时产生，升级时不应删除
-readonly RUNTIME_DIRS="logs trash"
+readonly RUNTIME_DIRS="logs trash run"
 
 ################################################################################
 # 工具函数
@@ -138,6 +147,15 @@ backup_config() {
     fi
   done
 
+  # 整个用户数据目录另存一份，用于恢复用户自行添加的文件
+  local d
+  for d in $USER_DATA_DIRS; do
+    if [ -d "$LIVE_DIR/$d" ]; then
+      mkdir -p "$BACKUP_DIR/userdata"
+      cp -Rf "$LIVE_DIR/$d" "$BACKUP_DIR/userdata/" 2> /dev/null || print_warn "备份失败: $d/"
+    fi
+  done
+
   return 0
 }
 
@@ -149,8 +167,7 @@ extract_module() {
     return 1
   fi
 
-  generate_manifest
-  print_ok "模块文件已解压（清单: $(wc -l < "$MANIFEST") 个文件）"
+  print_ok "模块文件已解压"
   return 0
 }
 
@@ -175,6 +192,26 @@ restore_config() {
     fi
   done
 
+  # 用户自行添加的文件：新包中不存在的才恢复，新包自带的模板文件保持新版本
+  if [ -d "$BACKUP_DIR/userdata" ]; then
+    (cd "$BACKUP_DIR/userdata" && find . -type f) | while IFS= read -r f; do
+      local rel="${f#./}"
+      [ -e "$MODPATH/$rel" ] && continue
+      mkdir -p "$(dirname "$MODPATH/$rel")"
+      if cp -f "$BACKUP_DIR/userdata/$rel" "$MODPATH/$rel" 2> /dev/null; then
+        print_ok "已保留用户文件: $rel"
+      else
+        print_warn "保留失败: $rel"
+      fi
+    done
+  fi
+
+  return 0
+}
+
+build_manifest() {
+  generate_manifest
+  print_ok "文件清单: $(wc -l < "$MANIFEST") 个文件"
   return 0
 }
 
@@ -233,7 +270,9 @@ sync_to_live() {
   # 确保旧版本残留文件不会干扰新版本运行
   print_step "清理旧版本文件..."
   local trash_dir="$LIVE_DIR/trash"
-  local trashed=0
+
+  # 只保留最近一次升级移出的文件
+  rm -rf "$trash_dir" 2> /dev/null
 
   find "$LIVE_DIR" -type f | while IFS= read -r f; do
     local rel="${f#$LIVE_DIR/}"
@@ -249,7 +288,7 @@ sync_to_live() {
 
   # 清理空目录（保留 logs 和 trash）
   find "$LIVE_DIR" -mindepth 1 -type d -empty \
-    ! -path "$LIVE_DIR/logs" \
+    ! -path "$LIVE_DIR/logs" ! -path "$LIVE_DIR/run" \
     ! -path "$LIVE_DIR/trash" ! -path "$LIVE_DIR/trash/*" \
     -delete 2> /dev/null
 
@@ -267,19 +306,19 @@ restart_proxy_if_needed() {
   return 0
 }
 
+# 目录 0755、普通文件 0644，只有脚本和二进制为 0755
+# （先递归设置再单独放开可执行文件，顺序不能反）
 set_permissions() {
   print_step "设置文件权限..."
 
-  local file
-  for file in $EXECUTABLE_FILES; do
-    local path="$MODPATH/$file"
-    if [ -e "$path" ]; then
-      chmod 0755 "$path" 2> /dev/null
-      [ -e "$LIVE_DIR/$file" ] && chmod 0755 "$LIVE_DIR/$file" 2> /dev/null
-    fi
+  local dir file
+  for dir in "$MODPATH" "$LIVE_DIR"; do
+    [ -d "$dir" ] || continue
+    set_perm_recursive "$dir" 0 0 0755 0644
+    for file in $EXECUTABLE_FILES; do
+      [ -e "$dir/$file" ] && set_perm "$dir/$file" 0 0 0755
+    done
   done
-
-  set_perm_recursive "$MODPATH" 0 0 0755 0755
 
   print_ok "权限设置完成"
   return 0
@@ -302,6 +341,7 @@ ui_print "  版本: $(grep_prop version "$TMPDIR/module.prop" 2> /dev/null || ec
 if backup_config \
   && extract_module \
   && restore_config \
+  && build_manifest \
   && stop_proxy_if_running \
   && sync_to_live \
   && set_permissions \
