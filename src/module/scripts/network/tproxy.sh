@@ -51,8 +51,9 @@ readonly CORE_GROUP="net_admin"
 # fwmark 标记值，ip rule 据此将流量导入自定义路由表
 readonly MARK=20
 readonly TABLE_ID=100
-# ip rule 优先级：需小于 Android netd 规则（从 10000 开始），确保先于系统规则匹配
-readonly RULE_PREF=9000
+# ip rule 不指定优先级：内核会把规则放在第一条系统规则之前（优先级 = 该规则 - 1），
+# 保证先于所有系统/厂商规则匹配。不能写死数值——部分 ROM（如小米 HyperOS）
+# 存在优先级更小的自有规则，写死会排到它们后面，导致标记流量到不了 Xray、整机断网
 
 readonly DEFAULT_TPROXY_PORT=12345
 readonly DEFAULT_HOTSPOT_INTERFACES="wlan2 ap+ swlan0 rndis+ ncm+"
@@ -281,7 +282,7 @@ cleanup_family() {
     done
   fi
 
-  # 旧版本添加的规则没有 pref，逐条删除直到不存在（最多 10 次防止死循环）
+  # 逐条删除直到不存在（兼容 7.4.0 写死 pref 的规则；最多 10 次防止死循环）
   i=0
   while [ "$i" -lt 10 ] && ipcmd "$family" rule del fwmark "$MARK" table "$TABLE_ID" 2>/dev/null; do
     i=$((i + 1))
@@ -385,9 +386,9 @@ build_rules() {
 setup_routing() {
   local family="$1"
 
-  log "INFO" "IPv$family: 配置策略路由 (fwmark=$MARK → table=$TABLE_ID → lo, pref=$RULE_PREF)..."
+  log "INFO" "IPv$family: 配置策略路由 (fwmark=$MARK → table=$TABLE_ID → lo)..."
 
-  ipcmd "$family" rule add fwmark "$MARK" table "$TABLE_ID" pref "$RULE_PREF" || {
+  ipcmd "$family" rule add fwmark "$MARK" table "$TABLE_ID" || {
     log "ERROR" "IPv$family: ip rule add 失败"; return 1
   }
   if [ "$family" = "6" ]; then
@@ -397,6 +398,11 @@ setup_routing() {
   fi || {
     log "ERROR" "IPv$family: ip route add 失败"; return 1
   }
+
+  # 与 7.3.0 保持一致：开启 IPv4 转发（热点/共享网络下游流量需要）
+  [ "$family" = "4" ] && echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null
+  log "INFO" "IPv$family: 策略路由 $(command ip "-$family" rule show 2>/dev/null | grep "lookup $TABLE_ID" | head -1)"
+  return 0
 }
 
 setup_family() {
