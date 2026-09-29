@@ -95,7 +95,6 @@
     .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
     .switch-row + .switch-row { border-top: 1px solid var(--border); }
     .switch-row small { display: block; color: var(--muted); font-size: 12.5px; }
-    .conf-value { flex: none; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
     input[type=checkbox].sw {
       appearance: none; -webkit-appearance: none; flex: none;
       width: 44px; height: 26px; border-radius: 13px; background: var(--border);
@@ -238,10 +237,6 @@
         <div class="switch-row">
           <div>代理热点 / USB 共享<small>PROXY_HOTSPOT · 重启服务后生效</small></div>
           <input type="checkbox" class="sw" data-conf="PROXY_HOTSPOT" />
-        </div>
-        <div class="switch-row">
-          <div>分应用代理<small>APP_PROXY_MODE · 在 module.conf 中修改</small></div>
-          <span class="conf-value" id="st-app-mode">-</span>
         </div>
       </div>
 
@@ -566,8 +561,6 @@
       for (const sw of $$('input.sw[data-conf]')) {
         sw.checked = s[sw.dataset.conf.toLowerCase()] === '1'
       }
-      const appModes = { off: '关闭', blacklist: '黑名单', whitelist: '白名单' }
-      $('#st-app-mode').textContent = appModes[s.app_proxy_mode] || s.app_proxy_mode || '关闭'
       $('#st-tproxy-port').textContent = s.tproxy_port || DEFAULT_TPROXY_PORT
     }
 
