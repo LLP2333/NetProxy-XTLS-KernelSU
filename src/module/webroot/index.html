@@ -95,6 +95,7 @@
     .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
     .switch-row + .switch-row { border-top: 1px solid var(--border); }
     .switch-row small { display: block; color: var(--muted); font-size: 12.5px; }
+    .conf-value { flex: none; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
     input[type=checkbox].sw {
       appearance: none; -webkit-appearance: none; flex: none;
       width: 44px; height: 26px; border-radius: 13px; background: var(--border);
@@ -206,6 +207,7 @@
           <dt>运行状态</dt><dd id="st-running">检测中…</dd>
           <dt>透明代理</dt><dd id="st-tproxy">-</dd>
           <dt>看门狗</dt><dd id="st-watchdog">-</dd>
+          <dt>透明代理端口</dt><dd id="st-tproxy-port">-</dd>
           <dt>PID</dt><dd id="st-pid">-</dd>
           <dt>运行时间</dt><dd id="st-uptime">-</dd>
           <dt>内核版本</dt><dd id="st-version">-</dd>
@@ -237,7 +239,10 @@
           <div>代理热点 / USB 共享<small>PROXY_HOTSPOT · 重启服务后生效</small></div>
           <input type="checkbox" class="sw" data-conf="PROXY_HOTSPOT" />
         </div>
-        <p class="hint" id="st-app-mode"></p>
+        <div class="switch-row">
+          <div>分应用代理<small>APP_PROXY_MODE · 在 module.conf 中修改</small></div>
+          <span class="conf-value" id="st-app-mode">-</span>
+        </div>
       </div>
 
       <div class="card">
@@ -562,7 +567,8 @@
         sw.checked = s[sw.dataset.conf.toLowerCase()] === '1'
       }
       const appModes = { off: '关闭', blacklist: '黑名单', whitelist: '白名单' }
-      $('#st-app-mode').textContent = `分应用代理: ${appModes[s.app_proxy_mode] || s.app_proxy_mode || '关闭'} · 端口 ${s.tproxy_port || DEFAULT_TPROXY_PORT}（在 module.conf 中修改）`
+      $('#st-app-mode').textContent = appModes[s.app_proxy_mode] || s.app_proxy_mode || '关闭'
+      $('#st-tproxy-port').textContent = s.tproxy_port || DEFAULT_TPROXY_PORT
     }
 
     const OP_LABELS = { start: '启动中…', stop: '停止中…', restart: '重启中…' }
