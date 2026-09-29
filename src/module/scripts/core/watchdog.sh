@@ -7,6 +7,7 @@
 #   1. 立即清理透明代理规则，恢复直连网络
 #   2. WATCHDOG_RESTART=1 时自动重启服务；
 #      RESTART_WINDOW 秒内最多重启 RESTART_LIMIT 次，超过后停止重试
+# 另外每 TRIM_INTERVAL 秒检查一次日志大小，超过上限时就地截断
 
 set -u
 
@@ -24,6 +25,8 @@ readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
 readonly CHECK_INTERVAL="${WATCHDOG_INTERVAL:-5}"
 readonly RESTART_LIMIT=3
 readonly RESTART_WINDOW=300
+# 每隔多少秒检查一次日志大小（access 日志随连接数增长较快）
+readonly TRIM_INTERVAL="${WATCHDOG_TRIM_INTERVAL:-300}"
 
 . "$MODDIR/scripts/utils/common.sh"
 . "$MODDIR/scripts/utils/config.sh"
@@ -66,14 +69,31 @@ handle_xray_exit() {
   LOG_STDERR=0 sh "$SERVICE_SCRIPT" start > /dev/null 2>&1 || log "ERROR" "看门狗: 自动重启失败，当前网络为直连"
 }
 
+trim_logs() {
+  local config
+
+  config="$(read_conf "$MODULE_CONF" "XRAY_CONFIG" "$MODDIR/config/xray/config.json")"
+  resolve_xray_log_files "${config:-$MODDIR/config/xray/config.json}" "$MODDIR/config/xray" "$MODDIR/logs/xray.log"
+  trim_module_logs "$LOG_FILE"
+}
+
 main() {
+  local elapsed=0
+
   mkdir -p "$RUN_DIR" 2> /dev/null || true
   printf '%s\n' "$$" > "$PID_FILE"
   log "INFO" "看门狗已启动 (PID: $$，检查间隔 ${CHECK_INTERVAL}s)"
 
   while :; do
     sleep "$CHECK_INTERVAL"
-    [ -n "$(get_pid "$XRAY_BIN")" ] && continue
+    if [ -n "$(get_pid "$XRAY_BIN")" ]; then
+      elapsed=$((elapsed + CHECK_INTERVAL))
+      if [ "$elapsed" -ge "$TRIM_INTERVAL" ]; then
+        elapsed=0
+        trim_logs
+      fi
+      continue
+    fi
     handle_xray_exit
     exit 0
   done

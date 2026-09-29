@@ -93,8 +93,9 @@ show_service_help() {
   cli service start                   启动服务
   cli service stop                    停止服务
   cli service restart                 重启服务
-  cli service logs [service|xray] [行数]
+  cli service logs [service|error|access] [行数]
                                       查看日志
+  cli service logs --list             列出当前生效的日志文件（JSON）
 EOF
 }
 
@@ -234,17 +235,57 @@ cmd_service_restart() {
   sh "$SERVICE_SCRIPT" restart
 }
 
+# 当前生效的日志文件，按 Xray 配置的 log.error / log.access 决定：
+#   service  模块运行日志（始终存在）
+#   error    Xray 错误日志；配置为文件时即该文件，否则为 Xray 标准输出 logs/xray.log
+#   access   Xray 访问日志；仅当配置为文件时存在
+load_log_targets() {
+  resolve_xray_log_files "$(read_xray_config)" "$XRAY_DIR" "$XRAY_LOG"
+}
+
+log_target_file() {
+  case "$1" in
+    service) printf '%s' "$SERVICE_LOG" ;;
+    error | xray | core) printf '%s' "$XRAY_STDOUT_LOG" ;;
+    access) printf '%s' "$XRAY_ACCESS_LOG" ;;
+  esac
+}
+
+# 输出 JSON 数组: [{"id":"service","label":"...","path":"..."}, ...]
+cmd_service_logs_list() {
+  local error_label="Xray 错误日志"
+  local items
+
+  [ -n "$XRAY_ERROR_LOG" ] || error_label="Xray 输出"
+  items="{\"id\":\"service\",\"label\":\"模块日志\",\"path\":\"$(json_escape "$SERVICE_LOG")\"}"
+  items="$items,{\"id\":\"error\",\"label\":\"$error_label\",\"path\":\"$(json_escape "$XRAY_STDOUT_LOG")\"}"
+  if [ -n "$XRAY_ACCESS_LOG" ] && [ "$XRAY_ACCESS_LOG" != "$XRAY_STDOUT_LOG" ]; then
+    items="$items,{\"id\":\"access\",\"label\":\"Xray 访问日志\",\"path\":\"$(json_escape "$XRAY_ACCESS_LOG")\"}"
+  fi
+  printf '[%s]\n' "$items"
+}
+
 cmd_service_logs() {
   local target="${1:-service}"
   local lines="${2:-80}"
   local file
 
+  load_log_targets
+  if [ "$target" = "--list" ]; then
+    cmd_service_logs_list
+    return
+  fi
+
   case "$target" in
-    service) file="$SERVICE_LOG" ;;
-    core | xray) file="$XRAY_LOG" ;;
-    *) die_cli "未知日志类型: $target" ;;
+    service | error | xray | core | access) ;;
+    *) die_cli "未知日志类型: $target（可用: service、error、access）" ;;
+  esac
+  case "$lines" in
+    '' | *[!0-9]*) die_cli "行数必须是数字: $lines" ;;
   esac
 
+  file="$(log_target_file "$target")"
+  [ -n "$file" ] || die_cli "Xray 配置未将 access 日志输出到文件（log.access 为空或 none）"
   [ -f "$file" ] || die_cli "日志文件不存在: $file"
   tail -n "$lines" "$file"
 }
@@ -282,10 +323,17 @@ cmd_xray_show() {
 
 cmd_xray_test() {
   local config="${1:-}"
+  local dir
 
   [ -n "$config" ] || config="$(read_xray_config)"
   [ -x "$XRAY_BIN" ] || die_cli "Xray 二进制不可执行: $XRAY_BIN"
   [ -f "$config" ] || die_cli "Xray 配置文件不存在: $config"
+
+  # xray run -test 会打开配置中的日志文件，目录不存在时会校验失败
+  resolve_xray_log_files "$config" "$XRAY_DIR" "$XRAY_LOG"
+  for dir in "$XRAY_ERROR_LOG" "$XRAY_ACCESS_LOG"; do
+    [ -n "$dir" ] && mkdir -p "$(dirname "$dir")" 2> /dev/null
+  done
 
   export XRAY_LOCATION_ASSET="$XRAY_DIR"
   export XRAY_LOCATION_CONFIG="$XRAY_DIR"
@@ -466,8 +514,9 @@ NetProxy CLI (TPROXY 模式)
   cli service start                   启动服务
   cli service stop                    停止服务
   cli service restart                 重启服务
-  cli service logs [service|xray] [行数]
+  cli service logs [service|error|access] [行数]
                                       查看日志
+  cli service logs --list             列出当前生效的日志文件（JSON）
 
 Xray:
   cli xray config                     查看当前配置路径

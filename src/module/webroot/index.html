@@ -279,14 +279,14 @@
       <div class="card">
         <div class="row">
           <select id="log-target">
-            <option value="service">service.log</option>
-            <option value="xray">xray.log</option>
+            <option value="service">模块日志 · service.log</option>
           </select>
           <input type="number" id="log-lines" value="200" min="10" max="5000" step="50" aria-label="行数" />
           <button type="button" class="btn" id="log-refresh">刷新</button>
           <label class="inline"><input type="checkbox" id="log-auto" /> 自动刷新</label>
           <label class="inline"><input type="checkbox" id="log-wrap" /> 自动换行</label>
         </div>
+        <p id="log-path" class="hint"></p>
         <pre id="log-view" class="out">加载中…</pre>
       </div>
     </section>
@@ -824,7 +824,43 @@
 
     $('#log-refresh').addEventListener('click', e => withLoading(e.currentTarget, '刷新中…', refreshLog))
     $('#log-wrap').addEventListener('change', e => $('#log-view').classList.toggle('wrap', e.target.checked))
-    $('#log-target').addEventListener('change', () => { delete $('#log-view').dataset.loaded; refreshLog() })
+    // 日志列表由 Xray 配置的 log.error / log.access 决定：模块日志 + 1~2 个 Xray 日志
+    let logTargets = []
+
+    function showLogPath() {
+      const t = logTargets.find(t => t.id === $('#log-target').value)
+      // 模块目录内的路径显示为相对路径，避免折行；完整路径放在提示里
+      $('#log-path').textContent = t ? t.path.replace(MODDIR + '/', '') : ''
+      $('#log-path').title = t ? t.path : ''
+    }
+
+    async function loadLogTargets() {
+      const r = await exec(`${CLI} service logs --list 2>/dev/null`)
+      try {
+        const list = JSON.parse(r.out.trim().split('\n').pop())
+        if (!Array.isArray(list) || !list.length) return
+        logTargets = list
+      } catch {
+        return
+      }
+      const sel = $('#log-target')
+      const prev = sel.value
+      sel.textContent = ''
+      for (const t of logTargets) {
+        const opt = document.createElement('option')
+        opt.value = t.id
+        opt.textContent = `${t.label} · ${t.path.split('/').pop()}`
+        sel.append(opt)
+      }
+      sel.value = logTargets.some(t => t.id === prev) ? prev : logTargets[0].id
+      showLogPath()
+    }
+
+    $('#log-target').addEventListener('change', () => {
+      showLogPath()
+      delete $('#log-view').dataset.loaded
+      refreshLog()
+    })
     $('#log-auto').addEventListener('change', setLogPolling)
 
     // ───────── 标签页 ─────────
@@ -838,7 +874,11 @@
       if (tab === 'logs') {
         window.scrollTo(0, 0)
         fitLogView()
-        refreshLog()
+        // 每次进入都重新读取列表：Xray 配置里的日志路径可能已修改
+        loadLogTargets().then(() => {
+          fitLogView()
+          refreshLog()
+        })
       }
       if (tab === 'status') refreshStatus()
       setLogPolling()

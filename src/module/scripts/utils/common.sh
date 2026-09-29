@@ -143,9 +143,11 @@ detect_primary_ipv4() {
 }
 
 #######################################
-# 日志轮转：文件超过上限（字节）时改名为 .1，只保留一份旧日志
+# 日志截断：文件超过上限（字节）时就地只保留后半部分
+# 不生成 .1 备份，保证日志文件数量不增加；写回同一个 inode，
+# 正以 O_APPEND 写入该文件的进程（Xray）不受影响
 #######################################
-rotate_log() {
+trim_log() {
   local file="$1"
   local max="${2:-1048576}"
   local size
@@ -153,7 +155,76 @@ rotate_log() {
   [ -f "$file" ] || return 0
   size="$(wc -c < "$file" 2> /dev/null | tr -d ' ')"
   [ "${size:-0}" -gt "$max" ] || return 0
-  mv -f "$file" "$file.1" 2> /dev/null || true
+  # 丢弃截断处不完整的第一行
+  tail -c $((max / 2)) "$file" 2> /dev/null | sed '1d' > "$file.trim" \
+    && cat "$file.trim" > "$file"
+  rm -f "$file.trim"
+}
+
+# 各日志的大小上限（字节）
+LOG_LIMIT_SERVICE=1048576
+LOG_LIMIT_XRAY=2097152
+LOG_LIMIT_ACCESS=5242880
+
+#######################################
+# 按上限截断模块的全部日志（需先调用 resolve_xray_log_files）
+#######################################
+trim_module_logs() {
+  local service_log="$1"
+
+  trim_log "$service_log" "$LOG_LIMIT_SERVICE"
+  trim_log "$XRAY_STDOUT_LOG" "$LOG_LIMIT_XRAY"
+  [ -n "$XRAY_ACCESS_LOG" ] && trim_log "$XRAY_ACCESS_LOG" "$LOG_LIMIT_ACCESS"
+  return 0
+}
+
+#######################################
+# 读取 Xray 配置中 log 对象的字符串字段（access / error）
+# log 对象内没有嵌套对象，取出 "log": { ... } 后再匹配键
+# 键不存在或为空时输出空串（Xray 语义：输出到 stdout）
+#######################################
+xray_log_setting() {
+  local config="$1"
+  local key="$2"
+
+  [ -f "$config" ] || return 0
+  tr '\n\r' '  ' < "$config" 2> /dev/null \
+    | sed -n 's/.*"log"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p' \
+    | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+#######################################
+# 根据 Xray 配置解析日志文件，设置以下变量：
+#   XRAY_ERROR_LOG   error 日志文件（为空表示 stdout 或已关闭）
+#   XRAY_ACCESS_LOG  access 日志文件（为空表示 stdout 或已关闭）
+#   XRAY_STDOUT_LOG  Xray 标准输出/错误的去向：优先写入 error 日志文件，
+#                    error 不是文件时写入默认文件 logs/xray.log
+# 相对路径按 Xray 的工作目录（配置目录）解析
+# 参数: <配置文件> <配置目录> <默认输出文件>
+#######################################
+resolve_xray_log_files() {
+  local config="$1"
+  local base_dir="$2"
+  local default_log="$3"
+  local key value log_file
+
+  XRAY_ERROR_LOG=""
+  XRAY_ACCESS_LOG=""
+  for key in error access; do
+    value="$(xray_log_setting "$config" "$key")"
+    case "$value" in
+      '' | none) log_file="" ;;
+      /*) log_file="$value" ;;
+      *) log_file="$base_dir/$value" ;;
+    esac
+    if [ "$key" = "error" ]; then
+      XRAY_ERROR_LOG="$log_file"
+    else
+      XRAY_ACCESS_LOG="$log_file"
+    fi
+  done
+
+  XRAY_STDOUT_LOG="${XRAY_ERROR_LOG:-$default_log}"
 }
 
 #######################################

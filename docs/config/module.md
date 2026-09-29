@@ -48,7 +48,33 @@ GEO_UPDATE_TIMEOUT=60
 - `info`：常规日志。
 - `debug`：额外记录 iptables 命令与完整的透明代理规则，排查规则问题时使用。
 
-`service.log` 超过 1 MB 时会在下次启动服务时轮转为 `service.log.1`；上一次运行的 `xray.log` 会保留为 `xray.log.1`。
+## 日志文件
+
+日志最少 1 个、最多 3 个：
+
+| 日志 | 路径 | 说明 |
+|---|---|---|
+| 模块日志 | `logs/service.log` | 始终存在：启停、透明代理规则、看门狗、geo 更新 |
+| Xray 错误日志 | Xray 配置的 `log.error` | Xray 的启动输出、崩溃信息也写入这里。`log.error` 为空（stdout）或 `none` 时改写到 `logs/xray.log` |
+| Xray 访问日志 | Xray 配置的 `log.access` | 仅当 `log.access` 为文件路径时存在；为空或 `none` 时没有单独的访问日志 |
+
+例如：
+
+```json
+"log": {
+  "access": "/data/adb/modules/netproxy/logs/access.log",
+  "error": "/data/adb/modules/netproxy/logs/xray.log",
+  "loglevel": "warning"
+}
+```
+
+WebUI 日志页和 `cli service logs` 会按当前配置列出这些日志。修改日志配置后需要重启服务。
+
+- 相对路径按 `config/xray/` 目录解析；日志所在目录不存在时会自动创建。
+- 超过上限时就地截断、只保留后半部分，不生成 `.1` 备份：模块日志 1 MB、Xray 错误日志 2 MB、访问日志 5 MB。服务运行期间每 5 分钟检查一次。
+- 每次启动服务会在 Xray 错误日志中写入一行 `===== 时间 启动 Xray =====`，Xray 崩溃被自动重启后，崩溃前的日志仍在分隔行之上。
+- 启动服务时会删除 `logs/` 目录中不再使用的日志文件（例如改了日志配置后留下的旧文件）。
+- 升级模块时日志会被保留。
 
 ## 透明代理
 

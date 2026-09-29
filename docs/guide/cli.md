@@ -37,9 +37,13 @@ su -c '/data/adb/modules/netproxy/scripts/cli service restart'
 查看日志：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service logs service 80'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+su -c '/data/adb/modules/netproxy/scripts/cli service logs service 80'   # 模块日志
+su -c '/data/adb/modules/netproxy/scripts/cli service logs error 80'     # Xray 错误日志（旧写法 xray 仍可用）
+su -c '/data/adb/modules/netproxy/scripts/cli service logs access 80'    # Xray 访问日志
+su -c '/data/adb/modules/netproxy/scripts/cli service logs --list'       # 当前生效的日志文件（JSON）
 ```
+
+Xray 的日志文件由 `config.json` 中的 `log.error` 与 `log.access` 决定，详见 [module.conf 的日志说明](../config/module.md#日志文件)。
 
 ## xray
 

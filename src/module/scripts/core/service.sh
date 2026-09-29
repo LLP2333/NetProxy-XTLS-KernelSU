@@ -11,6 +11,7 @@ readonly XRAY_BIN="$MODDIR/bin/xray"
 readonly MODULE_CONF="$MODDIR/config/module.conf"
 readonly XRAY_DIR="$MODDIR/config/xray"
 readonly DEFAULT_XRAY_CONFIG="$XRAY_DIR/config.json"
+# Xray 配置中 error 日志不是文件（输出到 stdout 或已关闭）时，标准输出写入此文件
 readonly XRAY_LOG_FILE="$MODDIR/logs/xray.log"
 readonly TPROXY_SCRIPT="$MODDIR/scripts/network/tproxy.sh"
 readonly WATCHDOG_SCRIPT="$MODDIR/scripts/core/watchdog.sh"
@@ -21,10 +22,8 @@ readonly WATCHDOG_PID_FILE="$RUN_DIR/watchdog.pid"
 readonly KILL_TIMEOUT=5
 # 等待 Xray 监听透明代理端口的最长时间（秒）
 readonly STARTUP_TIMEOUT=10
-# service.log 超过该大小（字节）时轮转为 service.log.1
-readonly LOG_MAX_BYTES=1048576
 readonly DEFAULT_TPROXY_PORT=12345
-# 启动失败时随同错误日志附带的 xray.log 末尾行数
+# 启动失败时随同错误日志附带的 Xray 日志末尾行数
 readonly XRAY_LOG_TAIL_LINES=20
 
 . "$MODDIR/scripts/utils/common.sh"
@@ -36,6 +35,7 @@ readonly BUSYBOX="$(detect_busybox)"
 
 XRAY_CONFIG="$DEFAULT_XRAY_CONFIG"
 TPROXY_PORT="$DEFAULT_TPROXY_PORT"
+XRAY_STDOUT_LOG="$XRAY_LOG_FILE"
 
 #######################################
 # 加载服务配置
@@ -88,17 +88,17 @@ log_xray_version() {
 }
 
 #######################################
-# 启动失败时把 xray.log 末尾几行追加到 service.log
+# 启动失败时把 Xray 日志末尾几行追加到 service.log
 # 方便用户只看一处日志就能定位问题
 #######################################
 log_xray_tail() {
-  [ -f "$XRAY_LOG_FILE" ] || return 0
+  [ -f "$XRAY_STDOUT_LOG" ] || return 0
 
-  log "ERROR" "—— xray.log 末尾 $XRAY_LOG_TAIL_LINES 行 ——"
-  tail -n "$XRAY_LOG_TAIL_LINES" "$XRAY_LOG_FILE" 2> /dev/null | while IFS= read -r line; do
+  log "ERROR" "—— $(basename "$XRAY_STDOUT_LOG") 末尾 $XRAY_LOG_TAIL_LINES 行 ——"
+  tail -n "$XRAY_LOG_TAIL_LINES" "$XRAY_STDOUT_LOG" 2> /dev/null | while IFS= read -r line; do
     [ -n "$line" ] && log "ERROR" "  $line"
   done
-  log "ERROR" "—— xray.log 末尾结束 ——"
+  log "ERROR" "—— $(basename "$XRAY_STDOUT_LOG") 末尾结束 ——"
 }
 
 #######################################
@@ -148,6 +148,38 @@ stop_watchdog() {
 }
 
 #######################################
+# 按 Xray 配置准备日志文件
+# 日志文件只有 service.log 与 Xray 配置的 error / access 文件（最多 3 个）：
+#   - Xray 标准输出写入 error 日志文件；error 不是文件时写入 logs/xray.log
+#   - 超过上限时就地截断，不生成 .1 备份
+#   - 每次启动写入分隔行，上一次运行的日志保留在同一文件中
+#######################################
+prepare_logs() {
+  local f
+
+  resolve_xray_log_files "$XRAY_CONFIG" "$XRAY_DIR" "$XRAY_LOG_FILE"
+
+  # logs/ 目录只保留当前生效的日志文件：旧配置留下的日志、7.4.0 的 .1 备份、
+  # 旧版安装包的占位文件都会删除（只处理模块自己的 logs/ 目录）
+  for f in "$MODDIR"/logs/*; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      "$LOG_FILE" | "$XRAY_STDOUT_LOG" | "$XRAY_ACCESS_LOG") continue ;;
+    esac
+    rm -f "$f" && log "INFO" "已删除不再使用的日志: $(basename "$f")"
+  done
+
+  trim_module_logs "$LOG_FILE"
+
+  for f in "$XRAY_STDOUT_LOG" "$XRAY_ACCESS_LOG"; do
+    [ -n "$f" ] && mkdir -p "$(dirname "$f")" 2> /dev/null
+  done
+
+  printf '\n===== %s 启动 Xray =====\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$XRAY_STDOUT_LOG"
+  log "INFO" "Xray 日志: ${XRAY_STDOUT_LOG}${XRAY_ACCESS_LOG:+，访问日志: $XRAY_ACCESS_LOG}"
+}
+
+#######################################
 # 启动服务
 #######################################
 do_start() {
@@ -163,7 +195,7 @@ do_start() {
     return 0
   fi
 
-  rotate_log "$LOG_FILE" "$LOG_MAX_BYTES"
+  prepare_logs
   log_xray_version
 
   log "INFO" "Xray 配置文件: $XRAY_CONFIG"
@@ -173,12 +205,9 @@ do_start() {
   export XRAY_LOCATION_ASSET="$XRAY_DIR"
   export XRAY_LOCATION_CONFIG="$XRAY_DIR"
 
-  # 保留上一次运行的日志，便于排查崩溃原因
-  [ -f "$XRAY_LOG_FILE" ] && mv -f "$XRAY_LOG_FILE" "$XRAY_LOG_FILE.1"
-
   cd "$XRAY_DIR" || die "无法进入 Xray 配置目录: $XRAY_DIR"
-  # 追加方式打开：Xray 的 error 日志若也指向该文件（O_APPEND），两者不会互相覆盖
-  nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" >> "$XRAY_LOG_FILE" 2>&1 &
+  # 追加方式打开：与 Xray 自身写 error 日志（O_APPEND）共用同一文件时不会互相覆盖
+  nohup "$BUSYBOX" setuidgid root:net_admin "$XRAY_BIN" run -config "$XRAY_CONFIG" >> "$XRAY_STDOUT_LOG" 2>&1 &
 
   new_pid=$!
 
@@ -187,7 +216,7 @@ do_start() {
     0) ;;
     1)
       log_xray_tail
-      die "Xray 启动失败，请检查日志: $XRAY_LOG_FILE"
+      die "Xray 启动失败，请检查日志: $XRAY_STDOUT_LOG"
       ;;
     *)
       kill "$new_pid" 2> /dev/null || true

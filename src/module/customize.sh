@@ -6,7 +6,8 @@
 #   1. backup_config      — 备份用户配置（升级时保留）
 #   2. extract_module     — 解压模块文件到 $MODPATH
 #   3. restore_config     — 将备份的配置恢复到新模块目录
-#   4. generate_manifest  — 生成文件清单（包含恢复的用户文件）
+#   4. restore_logs       — 将运行日志带到新模块目录
+#      generate_manifest  — 生成文件清单（包含恢复的用户文件）
 #   5. stop_proxy_if_running — 如果代理正在运行则先停止
 #   6. sync_to_live       — 将新文件同步到运行时目录，清理旧文件
 #   7. set_permissions    — 设置文件权限
@@ -209,6 +210,14 @@ restore_config() {
   return 0
 }
 
+# 日志随升级带到新模块目录：框架重启时用新目录整体替换，否则日志会被清空
+restore_logs() {
+  [ -d "$LIVE_DIR/logs" ] || return 0
+  mkdir -p "$MODPATH/logs"
+  cp -f "$LIVE_DIR"/logs/*.log "$MODPATH/logs/" 2> /dev/null && print_ok "已保留运行日志"
+  return 0
+}
+
 build_manifest() {
   generate_manifest
   print_ok "文件清单: $(wc -l < "$MANIFEST") 个文件"
@@ -341,6 +350,7 @@ ui_print "  版本: $(grep_prop version "$TMPDIR/module.prop" 2> /dev/null || ec
 if backup_config \
   && extract_module \
   && restore_config \
+  && restore_logs \
   && build_manifest \
   && stop_proxy_if_running \
   && sync_to_live \
