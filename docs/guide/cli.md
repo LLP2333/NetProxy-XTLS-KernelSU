@@ -66,7 +66,7 @@ su -c '/data/adb/modules/netproxy/scripts/cli xray version'
 ## geo
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli geo status'
+su -c '/data/adb/modules/netproxy/scripts/cli geo status'          # 加 --json 输出单行 JSON（WebUI 使用）
 su -c '/data/adb/modules/netproxy/scripts/cli geo update'          # 同时更新 geoip 和 geosite
 su -c '/data/adb/modules/netproxy/scripts/cli geo update geosite'
 ```

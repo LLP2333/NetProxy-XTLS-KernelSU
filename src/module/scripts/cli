@@ -118,7 +118,7 @@ EOF
 show_geo_help() {
   cat << EOF
 用法:
-  cli geo status                      查看 geoip / geosite 文件状态
+  cli geo status [--json]             查看 geoip / geosite 文件状态
   cli geo update [geoip|geosite|all]  在线更新 geo 数据（默认 all）
 EOF
 }
@@ -369,7 +369,26 @@ print_geo_file_status() {
   printf "%-10s   大小=%s 字节  修改时间=%s\n" "" "${size:-0}" "$mtime"
 }
 
+geo_file_json() {
+  local file="$1"
+  local size mtime
+
+  if [ ! -f "$file" ]; then
+    printf '{"exists":false}'
+    return
+  fi
+
+  size="$(wc -c < "$file" 2> /dev/null | tr -d ' ')"
+  mtime="$(date -r "$file" '+%Y-%m-%d %H:%M:%S' 2> /dev/null || true)"
+  printf '{"exists":true,"size":%s,"mtime":"%s"}' "${size:-0}" "$(json_escape "$mtime")"
+}
+
 cmd_geo_status() {
+  if [ "${1:-}" = "--json" ]; then
+    printf '{"geoip":%s,"geosite":%s}\n' "$(geo_file_json "$GEOIP_FILE")" "$(geo_file_json "$GEOSITE_FILE")"
+    return
+  fi
+
   section "Geo 数据状态"
   print_geo_file_status "geoip"   "$GEOIP_FILE"
   print_geo_file_status "geosite" "$GEOSITE_FILE"
@@ -425,7 +444,7 @@ Xray:
   cli xray version                    查看 Xray 版本
 
 Geo:
-  cli geo status                      查看 geoip / geosite 文件状态
+  cli geo status [--json]             查看 geoip / geosite 文件状态
   cli geo update [geoip|geosite|all]  在线更新 geo 数据（默认 all）
 
 模块设置:

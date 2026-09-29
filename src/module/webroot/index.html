@@ -113,8 +113,10 @@
     pre.out {
       margin: 10px 0 0; padding: 10px 12px; background: var(--code-bg);
       border: 1px solid var(--border); border-radius: 10px;
-      white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto;
+      white-space: pre; overflow: auto; max-height: 50vh;
+      -webkit-overflow-scrolling: touch;
     }
+    pre.out.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
     pre.out:empty { display: none; }
     textarea#editor {
       width: 100%; min-height: 60vh; resize: vertical; padding: 10px 12px;
@@ -146,17 +148,45 @@
       font-size: 14px; max-width: calc(100vw - 32px); transition: opacity .2s, transform .2s; z-index: 20;
     }
     #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    /* 跟随文字颜色，主按钮和普通按钮上都可见 */
     .spinner {
-      display: inline-block; width: 14px; height: 14px; border-radius: 50%;
-      border: 2px solid var(--border); border-top-color: var(--accent);
-      animation: spin .8s linear infinite; vertical-align: -2px;
+      display: inline-block; width: 14px; height: 14px; border-radius: 50%; flex: none;
+      border: 2px solid currentColor; border-right-color: transparent;
+      animation: spin .7s linear infinite; vertical-align: -2px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    button.btn.loading { display: inline-flex; align-items: center; gap: 6px; }
+    button.btn.loading:disabled { opacity: 1; cursor: progress; }
+    .busy .spinner { color: var(--accent); }
+    /* 头部下方的不确定进度条 */
+    .progress {
+      position: absolute; left: 0; right: 0; bottom: -1px; height: 3px;
+      overflow: hidden; pointer-events: none;
+    }
+    .progress::before {
+      content: ""; position: absolute; top: 0; bottom: 0; left: -40%; width: 40%;
+      background: var(--accent); border-radius: 2px;
+      animation: indeterminate 1.1s ease-in-out infinite;
+    }
+    @keyframes indeterminate { to { left: 100%; } }
+    @media (prefers-reduced-motion: reduce) {
+      .spinner, .progress::before { animation-duration: 2.4s; }
+    }
+    .geo-list { margin: 0 0 4px; }
+    .geo-item {
+      display: flex; align-items: baseline; gap: 12px; padding: 8px 0;
+      font-size: 14px; white-space: nowrap;
+    }
+    .geo-item + .geo-item { border-top: 1px solid var(--border); }
+    .geo-item b { font-weight: 600; }
+    .geo-item .meta { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .geo-item .missing { margin-left: auto; color: var(--danger); font-size: 13px; }
   </style>
 </head>
 <body>
   <header>
     <h1><span id="status-dot" class="dot"></span>NetProxy Xray<span id="op-busy" class="busy" hidden><span class="spinner"></span> <span id="op-busy-text"></span></span></h1>
+    <div id="progress" class="progress" hidden></div>
     <nav>
       <button type="button" data-tab="status" class="active">状态</button>
       <button type="button" data-tab="config">配置</button>
@@ -206,6 +236,7 @@
 
       <div class="card">
         <h2>Geo 数据</h2>
+        <div id="geo-list" class="geo-list"></div>
         <div class="row">
           <button type="button" class="btn primary" id="geo-update">更新 geoip / geosite</button>
           <button type="button" class="btn" id="geo-refresh">刷新状态</button>
@@ -248,6 +279,7 @@
           <input type="number" id="log-lines" value="200" min="10" max="5000" step="50" aria-label="行数" />
           <button type="button" class="btn" id="log-refresh">刷新</button>
           <label class="inline"><input type="checkbox" id="log-auto" /> 自动刷新</label>
+          <label class="inline"><input type="checkbox" id="log-wrap" /> 自动换行</label>
         </div>
         <pre id="log-view" class="out"></pre>
       </div>
@@ -272,20 +304,41 @@
     const $ = sel => document.querySelector(sel)
     const $$ = sel => Array.from(document.querySelectorAll(sel))
 
-    // ───────── KernelSU exec 桥接 ─────────
-    const inKsu = typeof window.ksu !== 'undefined' && typeof window.ksu.exec === 'function'
+    // ───────── KernelSU 命令桥接 ─────────
+    // ksu.exec 在 JavascriptInterface 里同步执行命令，期间页面 JS 线程被阻塞、无法重绘；
+    // ksu.spawn 把命令放到后台执行并逐行回调，页面保持可响应。优先使用 spawn。
+    const ksu = window.ksu
+    const inKsu = typeof ksu !== 'undefined' && typeof ksu.exec === 'function'
+    const hasSpawn = inKsu && typeof ksu.spawn === 'function'
     let execSeq = 0
 
-    function exec(cmd) {
+    // 让出一帧，确保加载状态在（可能阻塞的）命令开始前已经绘制
+    const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)))
+
+    function spawnCmd(cmd, onLine) {
       return new Promise(resolve => {
-        if (!inKsu) return resolve({ code: -1, out: '', err: '非 KernelSU 环境' })
-        const cb = `__netproxy_exec_${Date.now()}_${execSeq++}`
-        window[cb] = (code, out, err) => {
-          delete window[cb]
-          resolve({ code, out: out || '', err: err || '' })
+        const cb = `__netproxy_spawn_${Date.now()}_${execSeq++}`
+        const out = [], err = []
+        const stream = (lines, name) => ({
+          emit: (event, data) => {
+            if (event !== 'data') return
+            lines.push(data)
+            if (onLine) onLine(data, name)
+          }
+        })
+        window[cb] = {
+          stdout: stream(out, 'stdout'),
+          stderr: stream(err, 'stderr'),
+          emit: (event, data) => {
+            if (event !== 'exit') return
+            // 非零退出时 KernelSU 还会紧接着 emit('error')，稍后再移除回调对象
+            setTimeout(() => { delete window[cb] }, 1000)
+            resolve({ code: Number(data), out: out.join('\n'), err: err.join('\n') })
+          }
         }
         try {
-          window.ksu.exec(cmd, '{}', cb)
+          // args 传 '[]'：KernelSU 会原样拼接 command，整条命令交给 root shell 执行
+          ksu.spawn(cmd, '[]', '{}', cb)
         } catch (e) {
           delete window[cb]
           resolve({ code: -1, out: '', err: String(e && e.message || e) })
@@ -293,10 +346,49 @@
       })
     }
 
+    async function execCmd(cmd, onLine) {
+      await nextFrame()
+      const r = await new Promise(resolve => {
+        const cb = `__netproxy_exec_${Date.now()}_${execSeq++}`
+        window[cb] = (code, out, err) => {
+          delete window[cb]
+          resolve({ code, out: out || '', err: err || '' })
+        }
+        try {
+          ksu.exec(cmd, '{}', cb)
+        } catch (e) {
+          delete window[cb]
+          resolve({ code: -1, out: '', err: String(e && e.message || e) })
+        }
+      })
+      if (onLine) r.out.split('\n').forEach(line => onLine(line, 'stdout'))
+      return r
+    }
+
+    function exec(cmd, onLine) {
+      if (!inKsu) return Promise.resolve({ code: -1, out: '', err: '非 KernelSU 环境' })
+      return hasSpawn ? spawnCmd(cmd, onLine) : execCmd(cmd, onLine)
+    }
+
+    // 大块输出（日志、配置）：编码成单行 base64，spawn 只回调一次而不是每行一次。
+    // printf x 保留末尾换行；子 shell 以原命令的退出码退出。
+    async function execBulk(cmd) {
+      const r = await exec(`__o=$(${cmd}; __c=$?; printf x; exit $__c); __c=$?; printf '%s' "\${__o%x}" | base64 | tr -d '\\n'; exit $__c`)
+      let text = ''
+      try {
+        const bin = atob(r.out.trim())
+        text = new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)))
+      } catch {
+        text = r.out
+      }
+      return { code: r.code, text: text + (r.err ? '\n' + r.err : '') }
+    }
+
     const shq = v => `'${String(v).replace(/'/g, `'"'"'`)}'`
-    const cli = args => exec(`${CLI} ${args.map(shq).join(' ')} 2>&1`)
+    const cli = (args, onLine) => exec(`${CLI} ${args.map(shq).join(' ')} 2>&1`, onLine)
+    const stripAnsi = t => t.replace(/\x1b\[[0-9;]*m/g, '')
     // cli 的 info/warn 走 stdout、die_cli 走 stderr，合并后按顺序展示
-    const combined = r => (r.out + (r.err ? '\n' + r.err : '')).replace(/\x1b\[[0-9;]*m/g, '').trim()
+    const combined = r => stripAnsi(r.out + (r.err ? '\n' + r.err : '')).trim()
 
     function toBase64(text) {
       const bytes = new TextEncoder().encode(text)
@@ -355,21 +447,66 @@
       })
     }
 
-    let busy = false
-    const busyButtons = () => $$('button.btn, input.sw')
-    async function withBusy(label, fn) {
-      if (busy) return
-      busy = true
-      busyButtons().forEach(b => { b.disabled = true })
-      $('#op-busy').hidden = false
-      $('#op-busy-text').textContent = label
+    // 按钮加载态：前置转圈并替换文字，结束后恢复
+    function setLoading(btn, loadingText) {
+      if (!btn) return () => {}
+      const original = btn.innerHTML
+      btn.classList.add('loading')
+      btn.disabled = true
+      btn.innerHTML = '<span class="spinner"></span>'
+      btn.append(loadingText || btn.textContent || original)
+      return () => {
+        btn.classList.remove('loading')
+        btn.disabled = false
+        btn.innerHTML = original
+      }
+    }
+
+    // 轻量操作：只锁定当前按钮
+    async function withLoading(btn, loadingText, fn) {
+      if (btn && btn.disabled) return
+      const done = setLoading(btn, loadingText)
       try {
         return await fn()
       } finally {
+        done()
+      }
+    }
+
+    // 耗时操作：锁定全部按钮，显示进度条、按钮转圈和已用时间
+    let busy = false
+    const busyButtons = () => $$('button.btn, input.sw')
+    async function withBusy(label, fn, btn) {
+      if (busy) return
+      busy = true
+      const started = Date.now()
+      const done = setLoading(btn, label)
+      busyButtons().forEach(b => { b.disabled = true })
+      $('#progress').hidden = false
+      $('#op-busy').hidden = false
+      const tick = () => {
+        const sec = Math.floor((Date.now() - started) / 1000)
+        $('#op-busy-text').textContent = sec > 0 ? `${label} ${sec}s` : label
+      }
+      tick()
+      const timer = setInterval(tick, 1000)
+      try {
+        return await fn()
+      } finally {
+        clearInterval(timer)
         busy = false
         busyButtons().forEach(b => { b.disabled = false })
+        done()
+        $('#progress').hidden = true
         $('#op-busy').hidden = true
       }
+    }
+
+    // 把命令输出逐行追加到 <pre>，停留在底部时自动跟随
+    function appendLine(pre, line) {
+      const follow = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40
+      pre.textContent += (pre.textContent ? '\n' : '') + stripAnsi(line)
+      if (follow) pre.scrollTop = pre.scrollHeight
     }
 
     function formatUptime(sec) {
@@ -405,7 +542,10 @@
       $('#st-pid').textContent = s.pid || '-'
       $('#st-uptime').textContent = s.running ? formatUptime(s.uptime) : '-'
       $('#st-version').textContent = s.version || '-'
-      $('#st-config').textContent = s.config || '-'
+      // 模块目录内的路径显示为相对路径，避免长路径折成多行
+      const cfgEl = $('#st-config')
+      cfgEl.textContent = s.config ? s.config.replace(MODDIR + '/', '') : '-'
+      cfgEl.title = s.config || ''
       $('#cfg-path').textContent = s.config ? `配置文件: ${s.config}` : ''
       for (const sw of $$('input.sw[data-conf]')) {
         sw.checked = s[sw.dataset.conf.toLowerCase()] === '1'
@@ -414,27 +554,34 @@
       $('#st-app-mode').textContent = `分应用代理: ${appModes[s.app_proxy_mode] || s.app_proxy_mode || '关闭'} · 端口 ${s.tproxy_port || DEFAULT_TPROXY_PORT}（在 module.conf 中修改）`
     }
 
-    const OP_LABELS = { start: '正在启动…', stop: '正在停止…', restart: '正在重启…' }
+    const OP_LABELS = { start: '启动中…', stop: '停止中…', restart: '重启中…' }
 
-    async function serviceOp(op) {
+    // 启停过程的日志实时追加到输出框，避免长时间无反馈
+    async function runServiceOp(op, output) {
+      output.textContent = ''
+      const r = await cli(['service', op], line => appendLine(output, line))
+      await refreshStatus()
+      return r
+    }
+
+    async function serviceOp(op, btn) {
       await withBusy(OP_LABELS[op], async () => {
-        $('#op-output').textContent = ''
-        const r = await cli(['service', op])
-        $('#op-output').textContent = combined(r)
-        await refreshStatus()
+        const r = await runServiceOp(op, $('#op-output'))
         toast(r.code === 0 ? '操作完成' : `操作失败（退出码 ${r.code}）`)
-      })
+      }, btn)
     }
 
     $$('button[data-op]').forEach(btn => {
-      if (btn.dataset.op === 'stop') confirmClick(btn, '确认停止?', () => serviceOp('stop'))
-      else btn.addEventListener('click', () => serviceOp(btn.dataset.op))
+      if (btn.dataset.op === 'stop') confirmClick(btn, '确认停止?', () => serviceOp('stop', btn))
+      else btn.addEventListener('click', () => serviceOp(btn.dataset.op, btn))
     })
 
     $$('input.sw[data-conf]').forEach(sw => {
       sw.addEventListener('change', async () => {
         const value = sw.checked ? '1' : '0'
+        sw.disabled = true
         const r = await cli(['conf', 'set', sw.dataset.conf, value])
+        sw.disabled = busy
         if (r.code !== 0) {
           sw.checked = !sw.checked
           toast(combined(r) || '保存失败')
@@ -444,17 +591,53 @@
       })
     })
 
-    async function refreshGeo() {
-      const r = await cli(['geo', 'status'])
-      $('#geo-output').textContent = combined(r)
+    function formatSize(bytes) {
+      if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB'
+      if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB'
+      return bytes + ' B'
     }
-    $('#geo-refresh').addEventListener('click', refreshGeo)
-    $('#geo-update').addEventListener('click', () => withBusy('正在更新 geo 数据…', async () => {
-      const r = await cli(['geo', 'update', 'all'])
-      const st = await cli(['geo', 'status'])
-      $('#geo-output').textContent = combined(r) + '\n\n' + combined(st)
-      toast(r.code === 0 ? 'geo 数据已更新，重启服务后生效' : 'geo 更新失败，详见 service.log')
-    }))
+
+    function renderGeo(info) {
+      const list = $('#geo-list')
+      list.textContent = ''
+      for (const name of ['geoip', 'geosite']) {
+        const f = info && info[name]
+        const row = document.createElement('div')
+        row.className = 'geo-item'
+        const title = document.createElement('b')
+        title.textContent = name + '.dat'
+        const meta = document.createElement('span')
+        if (!f) {
+          meta.className = 'meta'
+          meta.textContent = '-'
+        } else if (!f.exists) {
+          meta.className = 'missing'
+          meta.textContent = '文件缺失'
+        } else {
+          meta.className = 'meta'
+          meta.textContent = `${formatSize(Number(f.size) || 0)} · ${f.mtime || '未知'}`
+        }
+        row.append(title, meta)
+        list.append(row)
+      }
+    }
+
+    async function refreshGeo() {
+      const r = await exec(`${CLI} geo status --json 2>/dev/null`)
+      try {
+        renderGeo(JSON.parse(r.out.trim().split('\n').pop()))
+      } catch {
+        renderGeo(null)
+      }
+    }
+    $('#geo-refresh').addEventListener('click', e => withLoading(e.currentTarget, '刷新中…', refreshGeo))
+    $('#geo-update').addEventListener('click', e => withBusy('更新中…', async () => {
+      const output = $('#geo-output')
+      output.textContent = ''
+      const r = await cli(['geo', 'update', 'all'], line => appendLine(output, line))
+      await refreshGeo()
+      toast(r.code === 0 ? 'geo 数据已更新，重启服务后生效' : 'geo 更新失败，详见输出')
+    }, e.currentTarget))
 
     // ───────── 配置编辑 ─────────
     const editor = $('#editor')
@@ -467,13 +650,13 @@
     }
 
     async function loadConfig() {
-      const r = await exec(`${CLI} xray show`)
+      const r = await execBulk(`${CLI} xray show 2>&1`)
       if (r.code !== 0) {
-        setMsg(cfgMsg, combined(r) || '读取配置失败', 'err')
+        setMsg(cfgMsg, stripAnsi(r.text).trim() || '读取配置失败', 'err')
         return
       }
-      editor.value = r.out
-      savedText = r.out
+      editor.value = r.text
+      savedText = r.text
       configLoaded = true
       updateDirty()
       setMsg(cfgMsg, '')
@@ -530,8 +713,8 @@
       setMsg(cfgMsg, lines.join('\n'), res.ok ? (res.warnings && res.warnings.length ? 'warn' : 'ok') : 'err')
     }
 
-    async function saveConfig(restart) {
-      await withBusy(restart ? '正在保存并重启…' : '正在保存…', async () => {
+    async function saveConfig(restart, btn) {
+      await withBusy(restart ? '保存并重启中…' : '保存中…', async () => {
         const parsed = parseEditor()
         if (!parsed.ok) { setMsg(cfgMsg, parsed.error, 'err'); return }
         const w = await writeFile(CANDIDATE, editor.value)
@@ -543,15 +726,14 @@
         updateDirty()
         let text = combined(r)
         if (restart) {
-          const rr = await cli(['service', 'restart'])
+          setMsg(cfgMsg, '配置已保存，正在重启服务…')
+          const rr = await runServiceOp('restart', $('#op-output'))
           text += '\n\n' + combined(rr)
-          $('#op-output').textContent = combined(rr)
-          await refreshStatus()
           if (rr.code !== 0) { setMsg(cfgMsg, text, 'err'); toast('配置已保存，但重启失败'); return }
         }
         showResult({ ok: true, text, warnings: lintConfig(parsed.value) }, restart ? '已保存并重启' : '已保存（重启服务后生效）')
         toast(restart ? '已保存并重启' : '已保存')
-      })
+      }, btn)
     }
 
     editor.addEventListener('input', updateDirty)
@@ -563,12 +745,11 @@
       updateDirty()
     })
 
-    $('#cfg-reload').addEventListener('click', () => {
-      if (editor.value !== savedText) {
-        setMsg(cfgMsg, '有未保存的修改，已放弃并重新加载', 'warn')
-      }
-      loadConfig()
-    })
+    $('#cfg-reload').addEventListener('click', e => withLoading(e.currentTarget, '加载中…', async () => {
+      const discarded = editor.value !== savedText
+      await loadConfig()
+      if (discarded) setMsg(cfgMsg, '已放弃未保存的修改并重新加载', 'warn')
+    }))
     $('#cfg-format').addEventListener('click', () => {
       const parsed = parseEditor()
       if (!parsed.ok) { setMsg(cfgMsg, parsed.error, 'err'); return }
@@ -576,20 +757,20 @@
       updateDirty()
       setMsg(cfgMsg, '已格式化', 'ok')
     })
-    $('#cfg-test').addEventListener('click', () => withBusy('正在校验…', async () => {
+    $('#cfg-test').addEventListener('click', e => withBusy('校验中…', async () => {
       const res = await testCandidate()
       await exec(`rm -f ${shq(CANDIDATE)}`)
       showResult(res, '校验通过')
-    }))
-    $('#cfg-save').addEventListener('click', () => saveConfig(false))
-    $('#cfg-save-restart').addEventListener('click', () => saveConfig(true))
-    confirmClick($('#cfg-restore'), '确认恢复?', () => withBusy('正在恢复…', async () => {
+    }, e.currentTarget))
+    $('#cfg-save').addEventListener('click', e => saveConfig(false, e.currentTarget))
+    $('#cfg-save-restart').addEventListener('click', e => saveConfig(true, e.currentTarget))
+    confirmClick($('#cfg-restore'), '确认恢复?', () => withBusy('恢复中…', async () => {
       if (!status || !status.config) { setMsg(cfgMsg, '无法确定配置路径', 'err'); return }
       const r = await cli(['xray', 'apply', status.config + '.bak'])
       if (r.code !== 0) { setMsg(cfgMsg, combined(r) || '恢复失败', 'err'); return }
       await loadConfig()
       setMsg(cfgMsg, '已恢复上一版配置（当前版本已互换为 .bak），重启服务后生效', 'ok')
-    }))
+    }, $('#cfg-restore')))
 
     // ───────── 日志 ─────────
     let logTimer = null
@@ -598,8 +779,8 @@
       const lines = Math.min(5000, Math.max(10, Number($('#log-lines').value) || 200))
       const view = $('#log-view')
       const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40
-      const r = await cli(['service', 'logs', $('#log-target').value, String(lines)])
-      view.textContent = combined(r) || '(空)'
+      const r = await execBulk(`${CLI} service logs ${shq($('#log-target').value)} ${lines} 2>&1`)
+      view.textContent = stripAnsi(r.text).trimEnd() || '(空)'
       if (atBottom || !view.dataset.loaded) view.scrollTop = view.scrollHeight
       view.dataset.loaded = '1'
     }
@@ -610,7 +791,8 @@
       if ($('#log-auto').checked && currentTab === 'logs') logTimer = setInterval(refreshLog, LOG_POLL_MS)
     }
 
-    $('#log-refresh').addEventListener('click', refreshLog)
+    $('#log-refresh').addEventListener('click', e => withLoading(e.currentTarget, '刷新中…', refreshLog))
+    $('#log-wrap').addEventListener('change', e => $('#log-view').classList.toggle('wrap', e.target.checked))
     $('#log-target').addEventListener('change', () => { delete $('#log-view').dataset.loaded; refreshLog() })
     $('#log-auto').addEventListener('change', setLogPolling)
 
