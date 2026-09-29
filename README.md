@@ -1,170 +1,120 @@
+<div align="center">
+
+<img src="image/logo.png" width="96" alt="NetProxy">
+
 # NetProxy
 
-Android system-level transparent proxy module based on **Xray-core**.
+An Android system-level transparent proxy module based on **Xray-core**, for KernelSU / Magisk / APatch
 
-Intercepts all traffic via iptables TPROXY + dokodemo-door inbound, supporting TCP, UDP, and DNS transparent proxying.
+[中文](README_ZH.md) · [Download](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest)
+
+</div>
 
 > This project is derived from [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) by [Fanju](https://github.com/Fanju6), with the proxy core switched from sing-box to Xray-core.
 
 ## Features
 
-- Bundled Xray-core Android arm64 binary.
-- Hijacks all TCP/UDP traffic to Xray through iptables mangle table TPROXY.
-- Built-in `geoip.dat` / `geosite.dat`, with one-tap online refresh from the WebUI or CLI.
-- Xray version is logged to `service.log` on start; `xray.log` tail is appended on startup failure for easy debugging.
-- Module upgrades **preserve** existing `bin/xray`, `geoip.dat`, and `geosite.dat` if you've replaced them manually.
-- CLI for service control, Xray config validation, log viewing, and geo data updates.
+- **Transparent proxy**: takes over local TCP / UDP / DNS traffic via iptables TPROXY, IPv4 and IPv6, and optionally hotspot / USB tethering clients.
+- **Per-app proxy**: blacklist or whitelist mode, with multi-user support (work profile, app clones).
+- **Native Xray config**: uses Xray's own `config.json` — outbounds, routing and DNS are written exactly as in Xray.
+- **WebUI**: check status, start/stop the service, edit and validate the config, read logs and update geo data from the KernelSU manager.
+- **Reliability**: a watchdog clears the rules immediately if Xray exits unexpectedly so the network keeps working, and can restart it; the service runs detached from the manager app, so it is not frozen or killed with the app.
+- **Painless upgrades**: reinstalling keeps your config, custom rule files, logs, and any Xray or geo data you replaced; new versions show up as updates in the module manager.
 
-## Module Layout
+## Installation & Quick Start
+
+1. Download `NetProxy_<version>_<build>.zip` from [Releases](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest), install it in your module manager and reboot.
+   - `_mini.zip` does not include the Xray binary or geo data; put your own `bin/xray` and `config/xray/geoip.dat` / `geosite.dat` in place.
+2. Edit the Xray config at `/data/adb/modules/netproxy/config/xray/config.json` (also editable on the WebUI "配置" page):
+   - Replace the default `proxy` outbound (a placeholder `freedom`) with your server, e.g. VLESS, Trojan, VMess or Shadowsocks, **keeping the tag `proxy`**.
+   - Outbounds do **not** need `sockopt.mark`; the module lets Xray's own traffic through automatically.
+   - The port of the `tproxy-in` inbound must match `TPROXY_PORT` in `module.conf` (default `12345`).
+3. Save and restart the service. The WebUI validates with `xray run -test` before saving and never overwrites the config if validation fails.
+
+The service starts on boot by default. For day-to-day toggling, use the module manager's "Action" button or the WebUI.
+
+## Everyday Use
+
+**WebUI** (tap the module's WebUI icon in the KernelSU manager)
+
+| Page | What it does |
+|---|---|
+| Status | Service state, transparent proxy rules, watchdog; start / stop / restart; common switches; update geoip / geosite |
+| Config | Edit `config.json`: format, validate, save, save & restart, restore the previous version |
+| Logs | View `service.log` plus the error and access logs from your Xray config, with auto refresh |
+
+**CLI**
+
+```sh
+CLI=/data/adb/modules/netproxy/scripts/cli
+su -c "$CLI service status"          # show status
+su -c "$CLI service restart"         # restart the service
+su -c "$CLI service logs error 100"  # read logs: service / error / access
+su -c "$CLI xray test"               # validate the current Xray config
+su -c "$CLI geo update"              # update geoip / geosite online
+su -c "$CLI help"                    # all commands
+```
+
+## Configuration
+
+Module settings live in `/data/adb/modules/netproxy/config/module.conf`; restart the service after changing them:
+
+| Key | Default | Description |
+|---|---|---|
+| `AUTO_START` | `1` | Start on boot |
+| `WATCHDOG_RESTART` | `1` | Restart Xray if it exits unexpectedly (at most 3 times in 5 minutes); when off, only clears the rules and falls back to direct |
+| `TPROXY_PORT` | `12345` | Transparent proxy port; must match the Xray inbound port |
+| `PROXY_IPV6` | `1` | Proxy IPv6 traffic; when off, IPv6 goes direct |
+| `PROXY_HOTSPOT` | `1` | Proxy hotspot / USB tethering clients on the interfaces in `HOTSPOT_INTERFACES` |
+| `APP_PROXY_MODE` | `off` | Per-app proxy: `off` proxies everything, `blacklist` skips listed apps, `whitelist` proxies only listed apps |
+| `APP_PROXY_LIST` | empty | Apps as `package` or `userId:package`, separated by spaces or commas |
+| `LOG_LEVEL` | `info` | `debug` also logs the full transparent proxy rules |
+| `GEO_UPDATE_*` | Loyalsoldier | Download URLs and timeout for geo data |
+
+**Logs** are in `/data/adb/modules/netproxy/logs/`, at most three files: `service.log` (module log) plus the files set by `log.error` and `log.access` in your Xray config. They are trimmed automatically when they grow too large.
+
+## FAQ
+
+**No network after enabling — how do I recover?**
+Tap the "Action" button in the module manager to stop the service, or run `su -c /data/adb/modules/netproxy/scripts/cli service stop`; the transparent proxy rules are removed. Then check `service.log` and the Xray error log.
+
+**Traffic doesn't seem to go through the proxy?**
+- Enable the Xray access log (set `log.access` to a file path) and check whether connections are routed to `proxy` or `direct`. Mainland China sites going direct is expected with the default rules.
+- Check whether `PROXY_IPV6` is off: apps using IPv6 would bypass the proxy.
+
+**Google Play downloads stay pending?**
+Put the Google domain and IP rules before the `geosite:cn` / `geoip:cn` direct rules, and configure several independent DNS upstreams for non-China domains. Otherwise the Play download CDN may be routed direct, or a single DoH failure can make Android mark the network as unvalidated.
+
+## Updating
+
+- **Module**: the module manager shows new versions; you can also download from Releases and install over the existing one.
+- **Geo data**: tap "更新 geoip / geosite" on the WebUI status page or run `cli geo update`. Downloads are sha256-verified before replacing, failures leave the existing files untouched, and changes apply after a service restart.
+- **Xray binary**: download `Xray-android-arm64-v8a.zip` from [Xray-core Releases](https://github.com/XTLS/Xray-core/releases), replace `/data/adb/modules/netproxy/bin/xray` with the `xray` inside, and restart the service. Module upgrades keep your replacement; to go back to the bundled version, delete the file and reinstall the module.
+
+## Development & Release
 
 ```text
 src/module/
-├─ META-INF/                   # Magisk/KernelSU/APatch install entry
-├─ bin/
-│  └─ xray                    # Xray-core Android arm64 binary
-├─ config/
-│  ├─ module.conf             # Module-level settings
-│  └─ xray/
-│     ├─ config.json          # Xray main config (dokodemo-door inbound)
-│     ├─ geoip.dat
-│     └─ geosite.dat
-├─ scripts/
-│  ├─ cli                     # CLI entry (service/xray/geo/conf subcommands)
-│  ├─ core/
-│  │  ├─ service.sh           # Service start/stop core logic
-│  │  ├─ watchdog.sh          # Watchdog: clears rules and restarts if Xray exits unexpectedly
-│  │  └─ geo_update.sh        # Online geoip/geosite update
-│  ├─ network/
-│  │  └─ tproxy.sh            # iptables TPROXY rule management
-│  └─ utils/
-│     ├─ common.sh            # Logging, path, and common utilities
-│     └─ config.sh            # Config read/write helpers
-├─ webroot/                    # KernelSU WebUI
-├─ logs/                       # Runtime logs (auto-generated)
-├─ run/                        # Runtime state: PIDs, rule files, etc. (auto-generated)
-├─ action.sh                   # Module manager "Action" button script
-├─ customize.sh                # Install/upgrade script
-├─ module.prop                 # Module metadata (name, version, etc.)
-└─ service.sh                  # Boot service entry (AUTO_START)
+├─ config/module.conf          # module settings
+├─ config/xray/                # Xray config and geo data
+├─ scripts/cli                 # CLI
+├─ scripts/core/               # service.sh (start/stop) · watchdog.sh · geo_update.sh
+├─ scripts/network/tproxy.sh   # transparent proxy rules
+├─ webroot/index.html          # WebUI
+├─ customize.sh                # install and upgrade
+├─ service.sh / action.sh      # boot entry · Action button
+└─ module.prop                 # module metadata
 ```
 
-## Building the Module
+- **Local build**: `cd src/module && zip -r ../../NetProxy.zip .` (files must sit at the zip root).
+- **Release**: bump `version` in `module.prop`, add a section for the version at the top of `.github/changelog.md`, push to `main`, then create and push a tag starting with `V` (e.g. `V7.6.0`). CI builds the packages, generates `update.json` and publishes the release; `versionCode` is set to the commit count automatically.
 
-From the project root:
-
-```sh
-cd src/module && zip -r ../../NetProxy.zip . && cd ../..
-```
-
-Files inside the zip must be at the root level (no extra wrapper folder). The resulting `NetProxy.zip` can be installed directly via a module manager.
-
-## Quick Start
-
-1. Flash the module in Magisk, KernelSU, or APatch.
-2. Reboot the device.
-3. Edit the Xray config:
-
-```text
-/data/adb/modules/netproxy/config/xray/config.json
-```
-
-4. Replace the default `proxy` outbound (`freedom`) with your own Xray outbound, such as VLESS, Trojan, VMess, Shadowsocks, or SOCKS. You do **not** need to set `sockopt.mark` on the outbound — the module prevents routing loops via owner match.
-5. Validate the config:
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-```
-
-6. Restart the service:
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
-```
-
-### Google Play downloads
-
-Keep Google domain and IP rules before `geosite:cn` / `geoip:cn` direct rules.
-Otherwise Android connectivity checks or Play download CDN traffic can be
-classified as direct traffic even though the Play Store UI itself works.
-
-Use independent DNS fallbacks for non-CN domains. A single DoH upstream failure
-can make Android mark the network as unvalidated and leave Play downloads
-pending.
-
-Module upgrades preserve the installed Xray config. After changing the bundled
-template, update `/data/adb/modules/netproxy/config/xray/config.json` explicitly
-and restart the service.
-
-After that you can simply reboot — the module defaults to `AUTO_START=1` and will start automatically on boot. To manually toggle the service, open the module page in KernelSU / Magisk / APatch and tap the NetProxy "Action" button.
-
-## TProxy Overview
-
-The module uses iptables mangle table TPROXY to redirect all TCP/UDP traffic to Xray's dokodemo-door inbound port.
-
-**Startup flow:**
-
-1. Start the Xray process, listening on the dokodemo-door port (default `12345`)
-2. Configure ip rule/route so that marked packets are routed to local loopback
-3. Add TPROXY rules in PREROUTING to redirect traffic to Xray
-4. Mark locally originated traffic in OUTPUT to trigger re-route into TPROXY
-
-**Loop prevention:**
-
-Xray runs as `root:net_admin`. The OUTPUT chain uses iptables `-m owner --uid-owner root --gid-owner net_admin` to match and bypass traffic from the proxy process itself, eliminating the need for `sockopt.mark`. Users do **not** need to add `sockopt.mark` to their Xray outbound config.
-
-## Important Defaults
-
-- Xray config: `/data/adb/modules/netproxy/config/xray/config.json`
-- Xray asset directory: `/data/adb/modules/netproxy/config/xray`
-- Transparent proxy port: `12345` (`TPROXY_PORT` in `module.conf`)
-
-The default `proxy` outbound is set to `freedom` so the module can start even without a real server config. To actually proxy traffic, replace this outbound with your node configuration while keeping the tag name `proxy`.
-
-## CLI
-
-Day-to-day start/stop doesn't require the CLI — the "Action" button in the module manager will start the service when stopped and stop it when running.
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service status'
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-su -c '/data/adb/modules/netproxy/scripts/cli geo status'
-su -c '/data/adb/modules/netproxy/scripts/cli geo update'
-```
-
-## Updating geoip / geosite
-
-- **WebUI**: tap "更新 geoip / geosite" on the status page.
-- **CLI**: `cli geo update` or `cli geo update geoip` / `cli geo update geosite`.
-- Download → sha256 verification → atomic replace is handled in one script; failures leave the existing files untouched. Restart the service to apply.
-- **Change source**: edit `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL` in `module.conf`. Defaults to [`Loyalsoldier/v2ray-rules-dat`](https://github.com/Loyalsoldier/v2ray-rules-dat), same as the official Xray-install.
-
-## Updating Xray
-
-This project does not build Xray-core during the module build process. Use the official release assets directly:
-
-```text
-https://github.com/XTLS/Xray-core/releases
-```
-
-Place the files from the release archive into the corresponding module paths:
-
-- `xray` -> `src/module/bin/xray`
-- `geoip.dat` -> `src/module/config/xray/geoip.dat`
-- `geosite.dat` -> `src/module/config/xray/geosite.dat`
-
-> Tip: if you manually replace `/data/adb/modules/netproxy/bin/xray` on an installed device, re-flashing the module **will not** overwrite that file (same for `geoip.dat` / `geosite.dat`). Delete the file before re-flashing if you want the module-bundled version back.
-
-## References
-
-- [Xray-core releases](https://github.com/XTLS/Xray-core/releases)
-- [Xray dokodemo-door documentation](https://xtls.github.io/config/inbounds/dokodemo.html)
+How it works: the OUTPUT chain marks local traffic, policy routing sends it back through `lo` into PREROUTING, where TPROXY hands it to Xray's `dokodemo-door` inbound. Xray runs as `root:net_admin`, and its own traffic is let through by an owner match to avoid loops.
 
 ## Acknowledgements
 
-Many thanks to [Fanju](https://github.com/Fanju6) and all contributors of [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk). The module framework, install/upgrade scripts, transparent proxy approach, and documentation structure of this project all come from NetProxy-Magisk — this project would not exist without it. If you use sing-box, the original project is recommended.
+Many thanks to [Fanju](https://github.com/Fanju6) and all contributors of [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk). The module framework, install/upgrade scripts, transparent proxy approach and documentation structure of this project all come from NetProxy-Magisk — this project would not exist without it. If you use sing-box, the original project is recommended.
 
 ## License
 
-GPL-3.0
+[GPL-3.0](LICENSE)

@@ -1,156 +1,120 @@
+<div align="center">
+
+<img src="image/logo.png" width="96" alt="NetProxy">
+
 # NetProxy
 
-基于 **Xray-core** 的 Android 系统级透明代理模块。
+基于 **Xray-core** 的 Android 系统级透明代理模块，支持 KernelSU / Magisk / APatch
 
-通过 iptables TPROXY + dokodemo-door 入站实现全局流量劫持，支持 TCP、UDP、DNS 透明代理。
+[English](README.md) · [下载](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest)
+
+</div>
 
 > 本项目基于 [Fanju](https://github.com/Fanju6) 的 [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) 修改而来，将代理核心从 sing-box 替换为 Xray-core。
 
-## 功能范围
+## 功能
 
-- 内置 Xray-core Android arm64 二进制。
-- 通过 iptables mangle 表 TPROXY 劫持全部 TCP/UDP 流量到 Xray。
-- 内置 `geoip.dat` 和 `geosite.dat`，并支持在 WebUI 或 CLI 中一键在线更新。
-- 启动时把 Xray 版本写入 `service.log`；启动失败自动附带 `xray.log` 末尾日志。
-- 升级模块时**自动保留**已存在的 `bin/xray` / `geoip.dat` / `geosite.dat`，方便用户自行替换不被回滚。
-- CLI 支持服务启停、Xray 配置校验、日志查看、geo 数据更新。
+- **透明代理**：通过 iptables TPROXY 接管本机 TCP / UDP / DNS 流量，支持 IPv4 与 IPv6，可选接管热点、USB 共享下游设备。
+- **分应用代理**：黑名单或白名单模式，支持多用户（工作资料、应用分身）。
+- **原生 Xray 配置**：直接使用 Xray 的 `config.json`，节点、路由、DNS 全部按 Xray 原生写法配置。
+- **WebUI**：在 KernelSU 管理器中查看状态、启停服务、编辑并校验配置、查看日志、更新 geo 数据。
+- **稳定性**：看门狗在 Xray 意外退出时立即清理规则避免断网，并可自动重启；服务脱离管理器应用运行，不会随应用被冻结或关闭。
+- **升级无忧**：覆盖安装会保留配置、自定义规则文件、日志以及自行替换的 Xray 与 geo 数据；模块管理器中可直接收到新版本提示。
 
-## 模块结构
+## 安装与快速开始
+
+1. 从 [Releases](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest) 下载 `NetProxy_<版本>_<编号>.zip`，在模块管理器中安装后重启手机。
+   - `_mini.zip` 不含 Xray 程序与 geo 数据，需要自行放入 `bin/xray` 与 `config/xray/geoip.dat`、`geosite.dat`。
+2. 编辑 Xray 配置 `/data/adb/modules/netproxy/config/xray/config.json`，可在 WebUI 的「配置」页直接编辑：
+   - 把默认的 `proxy` 出站（占位用的 `freedom`）替换成你的节点，例如 VLESS、Trojan、VMess、Shadowsocks，**保留 tag `proxy`**。
+   - 出站**不需要**设置 `sockopt.mark`，模块会自动放行 Xray 自身的流量。
+   - 透明代理入站 `tproxy-in` 的端口需与 `module.conf` 中的 `TPROXY_PORT`（默认 `12345`）一致。
+3. 保存并重启服务。WebUI 保存时会先用 `xray run -test` 校验，校验失败不会覆盖原配置。
+
+服务默认开机自启。之后日常开关可以使用模块管理器中的「操作」按钮或 WebUI。
+
+## 日常使用
+
+**WebUI**（KernelSU 管理器中点击模块的 WebUI 图标）
+
+| 页面 | 功能 |
+|---|---|
+| 状态 | 运行状态、透明代理规则、看门狗；启动 / 停止 / 重启；常用开关；更新 geoip / geosite |
+| 配置 | 编辑 `config.json`，格式化、校验、保存、保存并重启、恢复上一版 |
+| 日志 | 查看 `service.log` 与 Xray 配置中的错误日志、访问日志，支持自动刷新 |
+
+**CLI**
+
+```sh
+CLI=/data/adb/modules/netproxy/scripts/cli
+su -c "$CLI service status"          # 查看状态
+su -c "$CLI service restart"         # 重启服务
+su -c "$CLI service logs error 100"  # 查看日志：service / error / access
+su -c "$CLI xray test"               # 校验当前 Xray 配置
+su -c "$CLI geo update"              # 在线更新 geoip / geosite
+su -c "$CLI help"                    # 全部命令
+```
+
+## 配置
+
+模块设置位于 `/data/adb/modules/netproxy/config/module.conf`，修改后重启服务生效：
+
+| 键 | 默认值 | 说明 |
+|---|---|---|
+| `AUTO_START` | `1` | 开机自动启动 |
+| `WATCHDOG_RESTART` | `1` | Xray 意外退出后自动重启（5 分钟内最多 3 次）；关闭时只清理规则、恢复直连 |
+| `TPROXY_PORT` | `12345` | 透明代理端口，需与 Xray 入站端口一致 |
+| `PROXY_IPV6` | `1` | 代理 IPv6 流量；关闭时 IPv6 流量直连 |
+| `PROXY_HOTSPOT` | `1` | 代理热点 / USB 共享下游设备，接口由 `HOTSPOT_INTERFACES` 指定 |
+| `APP_PROXY_MODE` | `off` | 分应用代理：`off` 全部代理，`blacklist` 列表内不代理，`whitelist` 只代理列表内 |
+| `APP_PROXY_LIST` | 空 | 应用列表，`包名` 或 `用户ID:包名`，用空格或英文逗号分隔 |
+| `LOG_LEVEL` | `info` | 设为 `debug` 时记录完整的透明代理规则 |
+| `GEO_UPDATE_*` | Loyalsoldier | geo 数据的下载地址与超时 |
+
+**日志**位于 `/data/adb/modules/netproxy/logs/`，最多 3 个：`service.log`（模块日志），以及 Xray 配置中 `log.error`、`log.access` 指定的文件。超过大小上限时自动截断。
+
+## 常见问题
+
+**开启后无法上网怎么恢复？**
+点击模块管理器中的「操作」按钮停止服务，或执行 `su -c /data/adb/modules/netproxy/scripts/cli service stop`，透明代理规则会被清除。然后查看 `service.log` 与 Xray 错误日志排查原因。
+
+**感觉流量没有走代理？**
+- 查看 Xray 访问日志（在配置中设置 `log.access` 为文件路径），确认连接被路由到了 `proxy` 还是 `direct`。国内网站按默认规则直连属于正常现象。
+- 检查 `PROXY_IPV6` 是否被关闭：应用走 IPv6 时会绕过代理。
+
+**Google Play 下载一直等待中？**
+将 Google 相关的域名和 IP 规则放在 `geosite:cn` / `geoip:cn` 直连规则之前，并为非中国大陆域名配置多个独立的 DNS 上游。否则 Play 下载 CDN 可能被判定为直连，或单个 DoH 失败导致系统判定网络不可用。
+
+## 更新
+
+- **模块**：模块管理器会提示新版本，也可以从 Releases 下载后覆盖安装。
+- **geo 数据**：WebUI 状态页点击「更新 geoip / geosite」，或执行 `cli geo update`；下载后校验 sha256 再替换，失败不影响现有文件，重启服务后生效。
+- **Xray 程序**：从 [Xray-core Releases](https://github.com/XTLS/Xray-core/releases) 下载 `Xray-android-arm64-v8a.zip`，将其中的 `xray` 替换 `/data/adb/modules/netproxy/bin/xray` 后重启服务。升级模块时会保留你替换的版本；想恢复模块自带版本，删除该文件后重新安装模块。
+
+## 开发与发布
 
 ```text
 src/module/
-├─ META-INF/                   # Magisk/KernelSU/APatch 安装入口
-├─ bin/
-│  └─ xray                    # Xray-core Android arm64 二进制
-├─ config/
-│  ├─ module.conf             # 模块级配置
-│  └─ xray/
-│     ├─ config.json          # Xray 主配置（dokodemo-door 入站）
-│     ├─ geoip.dat
-│     └─ geosite.dat
-├─ scripts/
-│  ├─ cli                     # CLI 入口（service/xray/geo 子命令）
-│  ├─ core/
-│  │  ├─ service.sh           # 服务启停核心逻辑
-│  │  ├─ watchdog.sh          # 看门狗：Xray 意外退出时清理规则并按需重启
-│  │  └─ geo_update.sh        # 在线更新 geoip/geosite
-│  ├─ network/
-│  │  └─ tproxy.sh            # iptables TPROXY 规则管理
-│  └─ utils/
-│     ├─ common.sh            # 日志、路径等公共函数
-│     └─ config.sh            # 配置读写工具
-├─ webroot/                    # KernelSU WebUI
-├─ logs/                       # 运行时日志（自动生成）
-├─ run/                        # 运行时状态：PID、规则文件等（自动生成）
-├─ action.sh                   # 模块管理器"操作"按钮脚本
-├─ customize.sh                # 安装/升级脚本
-├─ module.prop                 # 模块元信息（名称、版本等）
-└─ service.sh                  # 开机服务入口（AUTO_START）
+├─ config/module.conf          # 模块设置
+├─ config/xray/                # Xray 配置与 geo 数据
+├─ scripts/cli                 # CLI
+├─ scripts/core/               # service.sh 服务启停 · watchdog.sh 看门狗 · geo_update.sh
+├─ scripts/network/tproxy.sh   # 透明代理规则
+├─ webroot/index.html          # WebUI
+├─ customize.sh                # 安装与升级
+├─ service.sh / action.sh      # 开机入口 · 操作按钮
+└─ module.prop                 # 模块信息
 ```
 
-## 打包模块
+- **本地打包**：`cd src/module && zip -r ../../NetProxy.zip .`（文件需位于 zip 根目录）。
+- **发布**：修改 `module.prop` 中的 `version`，在 `.github/changelog.md` 顶部新增该版本的更新日志，推送到 `main` 后打 `V` 开头的标签（如 `V7.6.0`）并推送。CI 会打包、生成 `update.json` 并发布 Release，`versionCode` 自动取提交数。
 
-在项目根目录执行：
-
-```sh
-cd src/module && zip -r ../../NetProxy.zip . && cd ../..
-```
-
-zip 内的文件必须在根目录层级（不能套一层文件夹），打包后的 `NetProxy.zip` 可直接在模块管理器中安装。
-
-## 快速开始
-
-1. 在 Magisk、KernelSU 或 APatch 中刷入模块。
-2. 重启设备。
-3. 编辑 Xray 配置：
-
-```text
-/data/adb/modules/netproxy/config/xray/config.json
-```
-
-4. 将默认的 `proxy` 出站（`freedom`）替换成自己的 Xray 出站，例如 VLESS、Trojan、VMess、Shadowsocks 或 SOCKS。出站 **不需要** 设置 `sockopt.mark`，模块通过 owner match 防止回环。
-5. 校验配置：
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-```
-
-6. 重启服务生效：
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
-```
-
-之后可以直接重启手机，模块默认 `AUTO_START=1`，开机会自动启动。需要手动开关时，打开 KernelSU / Magisk / APatch 的模块页面，点击 NetProxy 的"操作"按钮即可。
-
-## TProxy 原理
-
-模块使用 iptables mangle 表 TPROXY 目标将全部 TCP/UDP 流量重定向到 Xray 的 dokodemo-door 入站端口。
-
-**启动流程：**
-
-1. 启动 Xray 进程，监听 dokodemo-door 端口（默认 12345）
-2. 配置 ip rule/route，将被标记的包路由到本地回环
-3. 在 PREROUTING 链添加 TPROXY 规则，将流量重定向到 Xray
-4. 在 OUTPUT 链标记本机发出的流量，触发 re-route 进入 TPROXY
-
-**防回环机制：**
-
-Xray 以 `root:net_admin` 身份运行。OUTPUT 链通过 iptables `-m owner --uid-owner root --gid-owner net_admin` 匹配代理进程自身的流量并直接放行，不再依赖 `sockopt.mark`。因此用户编写 Xray 出站配置时 **无需** 添加 `sockopt.mark` 字段。
-
-## 重要默认值
-
-- Xray 配置：`/data/adb/modules/netproxy/config/xray/config.json`
-- Xray 资源目录：`/data/adb/modules/netproxy/config/xray`
-- 透明代理端口：`12345`（`module.conf` 中 `TPROXY_PORT`）
-
-默认配置里的 `proxy` 出站暂时是 `freedom`，目的是让模块在没有真实服务器配置时也能启动。真正走代理前，需要把这个出站替换成你的节点配置，并保留 tag 名称 `proxy`。
-
-## CLI
-
-日常启动和停止不必记 CLI。模块管理器里的"操作"按钮会在未运行时启动服务、运行时停止服务。
-
-```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service status'
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-su -c '/data/adb/modules/netproxy/scripts/cli geo status'
-su -c '/data/adb/modules/netproxy/scripts/cli geo update'
-```
-
-## 更新 geoip / geosite
-
-- **WebUI**：在状态页点击「更新 geoip / geosite」。
-- **CLI**：执行 `cli geo update` 或 `cli geo update geoip` / `cli geo update geosite`。
-- 下载、sha256 校验、原子替换在一个脚本里完成，失败不影响现有文件。更新后重启服务生效。
-- **更换数据源**：修改 `module.conf` 中的 `GEO_UPDATE_GEOIP_URL` / `GEO_UPDATE_GEOSITE_URL`，默认使用 [`Loyalsoldier/v2ray-rules-dat`](https://github.com/Loyalsoldier/v2ray-rules-dat)，与官方 Xray-install 一致。
-
-## 更新 Xray
-
-本项目不在模块构建流程里编译 Xray-core。直接使用官方 release 资产：
-
-```text
-https://github.com/XTLS/Xray-core/releases
-```
-
-将压缩包里的文件放到模块对应位置：
-
-- `xray` -> `src/module/bin/xray`
-- `geoip.dat` -> `src/module/config/xray/geoip.dat`
-- `geosite.dat` -> `src/module/config/xray/geosite.dat`
-
-> 提示：在已安装设备上手动替换 `/data/adb/modules/netproxy/bin/xray` 后，重新刷入模块升级时**不会**覆盖该文件（`geoip.dat` / `geosite.dat` 同理）。需要恢复模块自带版本时，删除目标文件后重新刷入即可。
-
-## 参考
-
-- [Xray-core releases](https://github.com/XTLS/Xray-core/releases)
-- [Xray dokodemo-door 文档](https://xtls.github.io/config/inbounds/dokodemo.html)
+透明代理原理：OUTPUT 链为本机流量打标记，经策略路由送回 `lo` 进入 PREROUTING，再由 TPROXY 交给 Xray 的 `dokodemo-door` 入站；Xray 以 `root:net_admin` 运行，其自身流量通过 owner 匹配放行以避免回环。
 
 ## 致谢
 
 感谢 [Fanju](https://github.com/Fanju6) 及 [NetProxy-Magisk](https://github.com/Fanju6/NetProxy-Magisk) 项目的全体贡献者。本项目的模块框架、安装与升级脚本、透明代理方案和文档结构都源自 NetProxy-Magisk，没有原项目的工作就没有本项目。如果你使用 sing-box，推荐直接使用原项目。
 
-## License
+## 许可证
 
-GPL-3.0
+[GPL-3.0](LICENSE)
