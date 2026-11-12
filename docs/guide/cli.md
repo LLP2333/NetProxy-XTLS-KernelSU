@@ -84,4 +84,25 @@ su -c '/data/adb/modules/netproxy/scripts/cli conf get PROXY_IPV6'
 su -c '/data/adb/modules/netproxy/scripts/cli conf set PROXY_IPV6 0'
 ```
 
-可用的键：`AUTO_START`、`WATCHDOG_RESTART`、`PROXY_IPV6`、`PROXY_HOTSPOT`。端口、分应用列表等其他设置请直接编辑 `module.conf`，见 [module.conf](../config/module.md)。透明代理相关设置修改后需要重启服务。
+可用的键：`AUTO_START`、`WATCHDOG_RESTART`、`PROXY_IPV6`、`PROXY_HOTSPOT`。分应用见下方 [app](#app)；端口等其他设置请直接编辑 `module.conf`，见 [module.conf](../config/module.md)。透明代理相关设置修改后需要重启服务。
+
+## app
+
+管理分应用代理（`APP_PROXY_MODE` / `APP_PROXY_LIST`）：
+
+```sh
+su -c '/data/adb/modules/netproxy/scripts/cli app status'
+su -c '/data/adb/modules/netproxy/scripts/cli app mode whitelist'
+su -c '/data/adb/modules/netproxy/scripts/cli app add com.android.chrome 10:com.android.chrome'
+su -c '/data/adb/modules/netproxy/scripts/cli app remove com.android.chrome'
+su -c '/data/adb/modules/netproxy/scripts/cli app set blacklist com.tencent.mm'
+su -c '/data/adb/modules/netproxy/scripts/cli app reload'
+```
+
+- `mode`：`off`、`blacklist` 或 `whitelist`。
+- `add` / `remove` / `clear`：修改列表，每项为 `包名` 或 `用户ID:包名`。
+- `set <模式> [包名...]`：一次性写入模式和完整列表（WebUI 使用此命令）。
+- `packages [--json]`：列出主用户已安装的应用。
+- `reload`：服务运行中时只重新加载透明代理规则，不重启 Xray；服务未运行时修改会在下次启动生效。
+
+修改后需要执行 `cli app reload` 或重启服务才会生效。WebUI 的「分应用」页签提供搜索、全选、反选和黑 / 白名单切换。

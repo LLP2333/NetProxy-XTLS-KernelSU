@@ -182,6 +182,44 @@
     .geo-item b { font-weight: 600; }
     .geo-item .meta { margin-left: auto; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
     .geo-item .missing { margin-left: auto; color: var(--danger); font-size: 13px; }
+    /* ───── 分应用 ───── */
+    .seg { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .seg label { flex: 1; text-align: center; cursor: pointer; }
+    .seg input { position: absolute; opacity: 0; pointer-events: none; }
+    .seg span {
+      display: block; padding: 9px 4px; font-size: 14px; font-weight: 600;
+      background: var(--surface-2); color: var(--muted);
+    }
+    .seg label + label span { border-left: 1px solid var(--border); }
+    .seg input:checked + span { background: var(--accent); color: var(--accent-text); }
+    .seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+    input[type=search] {
+      font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px; width: 100%;
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+    }
+    input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    .app-tools { position: sticky; top: var(--header-h, 0px); z-index: 5; }
+    .app-count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .app-list { padding: 0; overflow: hidden; }
+    .app-row {
+      display: flex; align-items: center; gap: 12px; padding: 10px 16px; cursor: pointer;
+    }
+    .app-row[hidden] { display: none; }
+    .app-row:not([hidden]) ~ .app-row:not([hidden]) { border-top: 1px solid var(--border); }
+    .app-row:active { background: var(--surface-2); }
+    .app-icon {
+      width: 36px; height: 36px; border-radius: 9px; flex: none; object-fit: cover;
+      background: var(--surface-2); color: var(--muted); display: grid; place-items: center;
+      font-weight: 650; font-size: 15px; text-transform: uppercase;
+    }
+    .app-text { min-width: 0; flex: 1; }
+    .app-text b { display: block; font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .app-text small { display: block; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); margin-left: 6px; font-weight: 500; }
+    .tag.warn { color: var(--warn); border-color: var(--warn); }
+    .app-row input[type=checkbox] { width: 20px; height: 20px; flex: none; accent-color: var(--accent); pointer-events: none; }
+    .app-empty { padding: 24px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+    .off-dim .app-list { opacity: .55; }
   </style>
 </head>
 <body>
@@ -190,6 +228,7 @@
     <div id="progress" class="progress" hidden></div>
     <nav>
       <button type="button" data-tab="status" class="active">状态</button>
+      <button type="button" data-tab="apps">分应用</button>
       <button type="button" data-tab="config">配置</button>
       <button type="button" data-tab="logs">日志</button>
     </nav>
@@ -250,6 +289,42 @@
         <p class="hint">下载后校验 sha256 再替换，失败不影响现有文件；更新后重启服务生效。</p>
         <pre id="geo-output" class="out"></pre>
       </div>
+    </section>
+
+    <!-- ───────────── 分应用 ───────────── -->
+    <section id="tab-apps" hidden>
+      <div class="card">
+        <div class="seg" role="radiogroup" aria-label="分应用模式">
+          <label><input type="radio" name="app-mode" value="off" /><span>全部代理</span></label>
+          <label><input type="radio" name="app-mode" value="blacklist" /><span>黑名单</span></label>
+          <label><input type="radio" name="app-mode" value="whitelist" /><span>白名单</span></label>
+        </div>
+        <p class="hint" id="app-mode-hint"></p>
+        <div class="row" style="margin-top:10px">
+          <button type="button" class="btn primary" id="app-save">保存并应用</button>
+          <button type="button" class="btn" id="app-reload">重新加载</button>
+          <span id="app-dirty" class="hint" hidden>● 有未保存的修改</span>
+        </div>
+        <div id="app-msg" class="msg"></div>
+      </div>
+
+      <div class="card app-tools">
+        <input type="search" id="app-search" placeholder="搜索应用名或包名" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" />
+        <div class="row" style="margin-top:10px">
+          <label class="inline"><input type="checkbox" id="app-show-system" /> 系统应用</label>
+          <label class="inline"><input type="checkbox" id="app-only-selected" /> 只看已选</label>
+          <span class="grow"></span>
+          <span class="app-count" id="app-count"></span>
+        </div>
+        <div class="row" title="只作用于当前筛选出的应用">
+          <button type="button" class="btn" id="app-select-all">全选</button>
+          <button type="button" class="btn" id="app-invert">反选</button>
+          <button type="button" class="btn" id="app-select-none">全不选</button>
+        </div>
+      </div>
+
+      <div class="card app-list" id="app-list"><div class="app-empty">加载中…</div></div>
+      <p class="hint" id="app-extra"></p>
     </section>
 
     <!-- ───────────── 配置 ───────────── -->
@@ -864,13 +939,262 @@
     })
     $('#log-auto').addEventListener('change', setLogPolling)
 
+    // ───────── 分应用 ─────────
+    // APP_PROXY_LIST 中带 "用户ID:" 前缀的条目属于其他用户（分身、工作资料），
+    // 列表里只管理主用户应用，这些条目原样保留
+    const MODE_HINTS = {
+      off: '所有应用都走代理，下方选择暂不生效（会保留，切换模式后可用）。',
+      blacklist: '勾选的应用不走代理（直连），其余应用全部代理。',
+      whitelist: '只有勾选的应用走代理，其余应用直连。'
+    }
+    const appState = {
+      loaded: false,
+      pkgs: [],              // { name, label, system, missing, row, box }
+      selected: new Set(),
+      extra: [],             // 其他用户条目，保存时原样写回
+      saved: '',
+      hasIcons: false
+    }
+    const appMode = () => ($('input[name=app-mode]:checked') || {}).value || 'off'
+    const appSignature = () => appMode() + '|' + [...appState.selected, ...appState.extra].sort().join(' ')
+    const parseMaybe = v => typeof v === 'string' ? JSON.parse(v) : v
+
+    // 新版 KernelSU 提供 listPackages / getPackagesInfo（含应用名和图标）；不支持时退回 CLI 读取 packages.list
+    function packagesFromKsu() {
+      if (!inKsu || typeof ksu.listPackages !== 'function') return null
+      try {
+        const user = parseMaybe(ksu.listPackages('user')) || []
+        const system = parseMaybe(ksu.listPackages('system')) || []
+        const all = [...user, ...system]
+        if (!all.length) return null
+        const info = {}
+        if (typeof ksu.getPackagesInfo === 'function') {
+          try {
+            for (const i of parseMaybe(ksu.getPackagesInfo(JSON.stringify(all))) || []) info[i.packageName] = i
+          } catch {}
+        }
+        const sys = new Set(system)
+        appState.hasIcons = true
+        return all.map(name => ({ name, label: (info[name] && info[name].appLabel) || '', system: sys.has(name) }))
+      } catch {
+        return null
+      }
+    }
+
+    async function packagesFromCli() {
+      const r = await execBulk(`${CLI} app packages --json 2>/dev/null`)
+      try {
+        return JSON.parse(r.text.trim()).map(p => ({ name: p.name, label: '', system: p.system === true }))
+      } catch {
+        return null
+      }
+    }
+
+    function renderAppMode() {
+      const mode = appMode()
+      $('#app-mode-hint').textContent = MODE_HINTS[mode]
+      $('#tab-apps').classList.toggle('off-dim', mode === 'off')
+    }
+
+    function updateAppDirty() {
+      $('#app-dirty').hidden = !appState.loaded || appSignature() === appState.saved
+    }
+
+    function buildAppRow(p) {
+      const row = document.createElement('div')
+      row.className = 'app-row'
+      row.dataset.name = p.name
+      let icon
+      if (appState.hasIcons && !p.missing) {
+        icon = document.createElement('img')
+        icon.loading = 'lazy'
+        icon.alt = ''
+        icon.src = `ksu://icon/${p.name}`
+        icon.onerror = () => icon.replaceWith(letterIcon(p))
+      } else {
+        icon = letterIcon(p)
+      }
+      icon.classList.add('app-icon')
+      const text = document.createElement('div')
+      text.className = 'app-text'
+      const title = document.createElement('b')
+      title.textContent = p.label || p.name
+      if (p.system) title.insertAdjacentHTML('beforeend', '<span class="tag">系统</span>')
+      if (p.missing) title.insertAdjacentHTML('beforeend', '<span class="tag warn">未安装</span>')
+      const sub = document.createElement('small')
+      sub.textContent = p.label ? p.name : ''
+      text.append(title, sub)
+      const box = document.createElement('input')
+      box.type = 'checkbox'
+      box.tabIndex = -1
+      box.checked = appState.selected.has(p.name)
+      row.append(icon, text, box)
+      p.row = row
+      p.box = box
+      p.search = (p.label + ' ' + p.name).toLowerCase()
+      return row
+    }
+
+    function letterIcon(p) {
+      const el = document.createElement('span')
+      el.className = 'app-icon'
+      el.textContent = (p.label || p.name.split('.').pop() || '?').charAt(0)
+      return el
+    }
+
+    function appVisible(p) {
+      const q = $('#app-search').value.trim().toLowerCase()
+      const sel = appState.selected.has(p.name)
+      if ($('#app-only-selected').checked && !sel) return false
+      // 已选的系统应用始终显示，避免隐藏后误以为没选
+      if (p.system && !sel && !$('#app-show-system').checked) return false
+      return !q || p.search.includes(q)
+    }
+
+    function filterApps() {
+      let shown = 0
+      for (const p of appState.pkgs) {
+        const v = appVisible(p)
+        p.row.hidden = !v
+        if (v) shown++
+      }
+      const list = $('#app-list')
+      let empty = list.querySelector('.app-empty')
+      if (!shown && appState.pkgs.length) {
+        if (!empty) { empty = document.createElement('div'); empty.className = 'app-empty'; list.append(empty) }
+        empty.textContent = '没有匹配的应用'
+      } else if (empty && appState.pkgs.length) {
+        empty.remove()
+      }
+      $('#app-count').textContent = `显示 ${shown} · 已选 ${appState.selected.size}`
+    }
+
+    function setAppSelected(p, on) {
+      if (on) appState.selected.add(p.name)
+      else appState.selected.delete(p.name)
+      p.box.checked = on
+    }
+
+    async function loadApps() {
+      const list = $('#app-list')
+      list.innerHTML = '<div class="app-empty">加载中…</div>'
+      setMsg($('#app-msg'), '')
+      await nextFrame()
+
+      const st = await exec(`${CLI} app status --json 2>/dev/null`)
+      let conf
+      try {
+        conf = JSON.parse(st.out.trim().split('\n').pop())
+      } catch {
+        list.innerHTML = '<div class="app-empty">无法读取分应用配置</div>'
+        return
+      }
+      const pkgs = packagesFromKsu() || await packagesFromCli()
+      if (!pkgs) {
+        list.innerHTML = '<div class="app-empty">无法读取已安装应用列表</div>'
+        return
+      }
+
+      const radio = $(`input[name=app-mode][value="${conf.mode}"]`) || $('input[name=app-mode][value=off]')
+      radio.checked = true
+      appState.selected = new Set(conf.list.filter(t => !t.includes(':')))
+      appState.extra = conf.list.filter(t => t.includes(':'))
+
+      // 列表中但未安装的应用也显示出来，方便取消
+      const installed = new Set(pkgs.map(p => p.name))
+      for (const name of appState.selected) {
+        if (!installed.has(name)) pkgs.push({ name, label: '', system: false, missing: true })
+      }
+      // 已选的排在前面（只在加载时排序，勾选时不跳动）
+      const key = p => (p.label || p.name).toLowerCase()
+      pkgs.sort((a, b) =>
+        (appState.selected.has(b.name) - appState.selected.has(a.name)) ||
+        (a.system - b.system) || key(a).localeCompare(key(b)))
+
+      appState.pkgs = pkgs
+      const frag = document.createDocumentFragment()
+      for (const p of pkgs) frag.append(buildAppRow(p))
+      list.textContent = ''
+      list.append(frag)
+
+      $('#app-extra').textContent = appState.extra.length
+        ? `另有 ${appState.extra.length} 个其他用户的条目会原样保留：${appState.extra.join('、')}`
+        : ''
+      appState.saved = appSignature()
+      appState.loaded = true
+      renderAppMode()
+      filterApps()
+      updateAppDirty()
+    }
+
+    async function saveApps(btn) {
+      const mode = appMode()
+      const msg = $('#app-msg')
+      await withBusy('应用中…', async () => {
+        const list = [...appState.selected, ...appState.extra]
+        const r = await cli(['app', 'set', mode, ...list])
+        if (r.code !== 0) { setMsg(msg, combined(r) || '保存失败', 'err'); return }
+        appState.saved = appSignature()
+        updateAppDirty()
+        const rr = await cli(['app', 'reload'])
+        // 成功时只显示摘要；完整的规则加载日志只在失败时展示（也写入了 service.log）
+        if (rr.code !== 0) { setMsg(msg, combined(r) + '\n' + combined(rr), 'err'); toast('已保存，但规则加载失败'); return }
+        const MODE_NAMES = { off: '全部代理', blacklist: '黑名单', whitelist: '白名单' }
+        const emptyWhitelist = mode === 'whitelist' && !list.length
+        const lines = [`已保存：${MODE_NAMES[mode]}，${list.length} 个应用`]
+        lines.push(/服务未运行/.test(rr.out) ? '服务未运行，下次启动时生效' : '透明代理规则已重新加载')
+        if (emptyWhitelist) lines.push('⚠ 白名单为空，本机应用流量都不会被代理')
+        setMsg(msg, lines.join('\n'), emptyWhitelist ? 'warn' : 'ok')
+        toast('已保存并应用')
+        await refreshStatus()
+      }, btn)
+    }
+
+    $('#app-list').addEventListener('click', e => {
+      const row = e.target.closest('.app-row')
+      if (!row || busy) return
+      const p = appState.pkgs.find(x => x.row === row)
+      if (!p) return
+      setAppSelected(p, !appState.selected.has(p.name))
+      // 「只看已选」时取消勾选不立即隐藏，避免误点后找不回来
+      $('#app-count').textContent = `显示 ${appState.pkgs.filter(x => !x.row.hidden).length} · 已选 ${appState.selected.size}`
+      updateAppDirty()
+    })
+    const bulkSelect = fn => () => {
+      if (busy) return
+      for (const p of appState.pkgs) if (!p.row.hidden) setAppSelected(p, fn(appState.selected.has(p.name)))
+      filterApps()
+      updateAppDirty()
+    }
+    $('#app-select-all').addEventListener('click', bulkSelect(() => true))
+    $('#app-invert').addEventListener('click', bulkSelect(on => !on))
+    $('#app-select-none').addEventListener('click', bulkSelect(() => false))
+    $('#app-search').addEventListener('input', filterApps)
+    $('#app-show-system').addEventListener('change', filterApps)
+    $('#app-only-selected').addEventListener('change', filterApps)
+    $$('input[name=app-mode]').forEach(r => r.addEventListener('change', () => { renderAppMode(); updateAppDirty() }))
+    $('#app-save').addEventListener('click', e => saveApps(e.currentTarget))
+    $('#app-reload').addEventListener('click', e => withLoading(e.currentTarget, '加载中…', async () => {
+      const discarded = appState.loaded && appSignature() !== appState.saved
+      await loadApps()
+      if (discarded) setMsg($('#app-msg'), '已放弃未保存的修改并重新加载', 'warn')
+    }))
+
+    // 工具栏吸顶在 header 下方
+    const syncHeaderHeight = () => document.documentElement.style.setProperty('--header-h', $('header').offsetHeight + 'px')
+    window.addEventListener('resize', syncHeaderHeight)
+
     // ───────── 标签页 ─────────
     let currentTab = 'status'
 
     function showTab(tab) {
       currentTab = tab
       $$('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab))
-      for (const name of ['status', 'config', 'logs']) $('#tab-' + name).hidden = name !== tab
+      for (const name of ['status', 'apps', 'config', 'logs']) $('#tab-' + name).hidden = name !== tab
+      if (tab === 'apps') {
+        syncHeaderHeight()
+        if (!appState.loaded) loadApps()
+      }
       if (tab === 'config' && !configLoaded) loadConfig()
       if (tab === 'logs') {
         window.scrollTo(0, 0)

@@ -62,7 +62,7 @@ APP_PROXY_LIST=""
 APP_PROXY_LIST="com.tencent.mm,10:com.android.chrome"
 ```
 
-不写用户 ID 时表示主用户 `0`；工作资料、应用分身通常是 `10`、`999` 等。启动时通过 `/data/system/packages.list` 解析 UID，找不到的包名会在 `service.log` 中警告。应用重装后 UID 可能变化，需要重启服务。
+不写用户 ID 时表示主用户 `0`；工作资料、应用分身通常是 `10`、`999` 等。启动时通过 `/data/system/packages.list` 解析 UID，找不到的包名会在 `service.log` 中警告。应用重装后 UID 可能变化，需要重新加载规则（`cli app reload`）或重启服务。也可以在 WebUI 的「分应用」页签中搜索、勾选应用并一键应用。
 
 分应用只作用于本机应用；热点下游设备不受影响。
 

@@ -22,6 +22,8 @@ readonly GEOSITE_FILE="$XRAY_DIR/geosite.dat"
 readonly RUN_DIR="$MODDIR/run"
 readonly WATCHDOG_PID_FILE="$RUN_DIR/watchdog.pid"
 readonly VERSION_CACHE="$RUN_DIR/xray_version"
+readonly TPROXY_SCRIPT="$SCRIPTS_DIR/network/tproxy.sh"
+readonly PACKAGES_LIST="/data/system/packages.list"
 
 # 允许通过 cli conf 读写的 module.conf 键（均为 0/1 开关）
 readonly CONF_SWITCH_KEYS="AUTO_START PROXY_IPV6 PROXY_HOTSPOT WATCHDOG_RESTART"
@@ -116,6 +118,22 @@ show_conf_help() {
   cli conf get <键>                   读取 module.conf 开关
   cli conf set <键> <0|1>             修改 module.conf 开关
 可用键: $CONF_SWITCH_KEYS
+EOF
+}
+
+show_app_help() {
+  cat << EOF
+用法:
+  cli app status [--json]             查看分应用模式和应用列表
+  cli app mode <off|blacklist|whitelist>
+                                      设置分应用模式
+  cli app add <包名>...               添加应用（包名 或 用户ID:包名）
+  cli app remove <包名>...            移除应用
+  cli app clear                       清空应用列表
+  cli app set <模式> [包名...]        一次性设置模式和完整列表
+  cli app packages [--json]           列出已安装应用（主用户）
+  cli app reload                      服务运行中时重新加载透明代理规则
+修改后执行 cli app reload（或重启服务）生效。
 EOF
 }
 
@@ -432,6 +450,185 @@ cmd_conf() {
 }
 
 #######################################
+# app 命令：分应用代理（APP_PROXY_MODE / APP_PROXY_LIST）
+#######################################
+app_mode() {
+  read_conf "$MODULE_CONF" "APP_PROXY_MODE" "off"
+}
+
+# 规范化为空格分隔、去重的列表
+app_list() {
+  local item list=""
+
+  for item in $(read_conf "$MODULE_CONF" "APP_PROXY_LIST" "" | tr ',' ' '); do
+    list="$(list_add "$list" "$item")"
+  done
+  printf '%s' "$list"
+}
+
+require_app_mode() {
+  case "$1" in
+    off | blacklist | whitelist) ;;
+    *) die_cli "模式只能是 off、blacklist 或 whitelist: $1" ;;
+  esac
+}
+
+# 包名 或 用户ID:包名
+require_app_token() {
+  case "$1" in
+    '' | *[!A-Za-z0-9_.:]* | *:*:* | :* | *:) die_cli "无效的应用: $1（格式: 包名 或 用户ID:包名）" ;;
+    *:*) case "${1%%:*}" in *[!0-9]*) die_cli "无效的用户 ID: $1" ;; esac ;;
+  esac
+}
+
+save_app_list() {
+  set_conf "$MODULE_CONF" "APP_PROXY_LIST" "$(quote_conf "$1")"
+}
+
+cmd_app_status() {
+  local mode list item items="" sep=""
+
+  mode="$(app_mode)"
+  list="$(app_list)"
+  if [ "${1:-}" = "--json" ]; then
+    for item in $list; do
+      items="$items$sep\"$(json_escape "$item")\""
+      sep=","
+    done
+    printf '{"mode":"%s","list":[%s]}\n' "$(json_escape "$mode")" "$items"
+    return
+  fi
+
+  section "分应用代理"
+  printf "模式: %s\n" "$mode"
+  if [ -z "$list" ]; then
+    printf "应用: （空）\n"
+  else
+    printf "应用:\n"
+    for item in $list; do printf "  %s\n" "$item"; done
+  fi
+}
+
+cmd_app_mode() {
+  local mode="${1:-}"
+
+  [ -n "$mode" ] || die_cli "用法: cli app mode <off|blacklist|whitelist>"
+  require_app_mode "$mode"
+  set_conf "$MODULE_CONF" "APP_PROXY_MODE" "$mode"
+  info "APP_PROXY_MODE=$mode"
+}
+
+cmd_app_add() {
+  local list item
+
+  [ $# -gt 0 ] || die_cli "用法: cli app add <包名>..."
+  list="$(app_list)"
+  for item in "$@"; do
+    require_app_token "$item"
+    list="$(list_add "$list" "$item")"
+  done
+  save_app_list "$list"
+  info "APP_PROXY_LIST=\"$list\""
+}
+
+cmd_app_remove() {
+  local list item
+
+  [ $# -gt 0 ] || die_cli "用法: cli app remove <包名>..."
+  list="$(app_list)"
+  for item in "$@"; do
+    list_contains "$list" "$item" || warn "不在列表中: $item"
+    list="$(list_remove "$list" "$item")"
+  done
+  save_app_list "$list"
+  info "APP_PROXY_LIST=\"$list\""
+}
+
+cmd_app_set() {
+  local mode="${1:-}"
+  local list="" item
+
+  [ -n "$mode" ] || die_cli "用法: cli app set <off|blacklist|whitelist> [包名...]"
+  require_app_mode "$mode"
+  shift
+  for item in "$@"; do
+    require_app_token "$item"
+    list="$(list_add "$list" "$item")"
+  done
+  set_conf "$MODULE_CONF" "APP_PROXY_MODE" "$mode"
+  save_app_list "$list"
+  info "APP_PROXY_MODE=$mode"
+  info "APP_PROXY_LIST=\"$list\""
+  if [ "$mode" = "whitelist" ] && [ -z "$list" ]; then
+    warn "白名单为空，本机应用流量都不会被代理"
+  fi
+}
+
+# 主用户已安装应用；system 取自 pm list packages -3（失败时为 null）
+cmd_app_packages() {
+  local third
+
+  [ -r "$PACKAGES_LIST" ] || die_cli "无法读取 $PACKAGES_LIST"
+
+  if [ "${1:-}" != "--json" ]; then
+    awk '{ print $1 }' "$PACKAGES_LIST" | sort
+    return
+  fi
+
+  # 用空格拼接：Android 的 awk 不接受 -v 值中含换行
+  third="$(pm list packages -3 2> /dev/null | sed -n 's/^package://p' | tr '\n' ' ' || true)"
+  awk -v third="$third" '
+    BEGIN {
+      known = (third ~ /[^ ]/)
+      n = split(third, t, " ")
+      for (i = 1; i <= n; i++) user[t[i]] = 1
+      printf "["
+    }
+    $2 ~ /^[0-9]+$/ {
+      sys = known ? (($1 in user) ? "false" : "true") : "null"
+      printf "%s{\"name\":\"%s\",\"uid\":%s,\"system\":%s}", (c++ ? "," : ""), $1, $2, sys
+    }
+    END { print "]" }
+  ' "$PACKAGES_LIST"
+}
+
+# 只重载 iptables 规则，不重启 Xray；服务未运行时下次启动自动生效
+cmd_app_reload() {
+  local out rc=0
+
+  [ -f "$TPROXY_SCRIPT" ] || die_cli "TProxy 脚本不存在: $TPROXY_SCRIPT"
+  if ! is_running || ! tproxy_active; then
+    info "服务未运行，设置将在下次启动时生效"
+    return 0
+  fi
+
+  info "重新加载透明代理规则..."
+  out="$(sh "$TPROXY_SCRIPT" start 2>&1)" || rc=$?
+  printf '%s\n' "$out" >> "$SERVICE_LOG" 2> /dev/null || true
+  printf '%s\n' "$out"
+  [ "$rc" -eq 0 ] || die_cli "透明代理规则加载失败，请查看 service.log 或重启服务"
+  info "已生效"
+}
+
+cmd_app() {
+  local subcmd="${1:-status}"
+  shift 2> /dev/null || true
+
+  case "$subcmd" in
+    status | list) cmd_app_status "$@" ;;
+    mode) cmd_app_mode "$@" ;;
+    add) cmd_app_add "$@" ;;
+    remove | rm | del) cmd_app_remove "$@" ;;
+    clear) save_app_list "" && info "APP_PROXY_LIST 已清空" ;;
+    set) cmd_app_set "$@" ;;
+    packages | pkgs) cmd_app_packages "$@" ;;
+    reload | apply) cmd_app_reload "$@" ;;
+    help | -h | --help) show_app_help ;;
+    *) die_cli "用法错误，使用 cli app help 查看帮助" ;;
+  esac
+}
+
+#######################################
 # geo 命令：管理 geoip.dat / geosite.dat
 #######################################
 print_geo_file_status() {
@@ -529,6 +726,15 @@ Geo:
   cli geo status [--json]             查看 geoip / geosite 文件状态
   cli geo update [geoip|geosite|all]  在线更新 geo 数据（默认 all）
 
+分应用代理:
+  cli app status [--json]             查看模式和应用列表
+  cli app mode <off|blacklist|whitelist>
+                                      设置模式
+  cli app add|remove <包名>...        添加 / 移除应用
+  cli app set <模式> [包名...]        一次性设置模式和列表
+  cli app packages [--json]           列出已安装应用
+  cli app reload                      重新加载规则使修改生效
+
 模块设置:
   cli conf get <键>                   读取开关（${CONF_SWITCH_KEYS}）
   cli conf set <键> <0|1>             修改开关
@@ -549,6 +755,7 @@ main() {
     xray | core) cmd_xray "$@" ;;
     geo) cmd_geo "$@" ;;
     conf) cmd_conf "$@" ;;
+    app | apps) cmd_app "$@" ;;
     help | -h | --help) show_help ;;
     *) die_cli "未知命令组: ${group}，使用 cli help 查看帮助" ;;
   esac

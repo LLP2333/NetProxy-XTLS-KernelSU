@@ -79,8 +79,8 @@ su -c '/data/adb/modules/netproxy/scripts/cli app mode whitelist'
 su -c '/data/adb/modules/netproxy/scripts/cli app add com.example.app'
 ```
 
-重载透明代理规则：
+使分应用修改立即生效（只重载规则，不重启 Xray）：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy reload'
+su -c '/data/adb/modules/netproxy/scripts/cli app reload'
 ```
