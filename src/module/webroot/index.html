@@ -302,7 +302,7 @@
         <p class="hint" id="app-mode-hint"></p>
         <div class="row" style="margin-top:10px">
           <button type="button" class="btn primary" id="app-save">保存并应用</button>
-          <button type="button" class="btn" id="app-reload">重新加载</button>
+          <button type="button" class="btn" id="app-reload">刷新</button>
           <span id="app-dirty" class="hint" hidden>● 有未保存的修改</span>
         </div>
         <div id="app-msg" class="msg"></div>
@@ -1174,10 +1174,10 @@
     $('#app-only-selected').addEventListener('change', filterApps)
     $$('input[name=app-mode]').forEach(r => r.addEventListener('change', () => { renderAppMode(); updateAppDirty() }))
     $('#app-save').addEventListener('click', e => saveApps(e.currentTarget))
-    $('#app-reload').addEventListener('click', e => withLoading(e.currentTarget, '加载中…', async () => {
+    $('#app-reload').addEventListener('click', e => withLoading(e.currentTarget, '刷新中…', async () => {
       const discarded = appState.loaded && appSignature() !== appState.saved
       await loadApps()
-      if (discarded) setMsg($('#app-msg'), '已放弃未保存的修改并重新加载', 'warn')
+      if (discarded) setMsg($('#app-msg'), '已放弃未保存的修改并刷新', 'warn')
     }))
 
     // 工具栏吸顶在 header 下方
