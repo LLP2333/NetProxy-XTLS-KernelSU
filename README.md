@@ -25,7 +25,7 @@ An Android system-level transparent proxy module based on **Xray-core**, for Ker
 
 1. Download `NetProxy_<version>_<build>.zip` from [Releases](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest), install it in your module manager and reboot.
    - `_mini.zip` does not include the Xray binary or geo data; put your own `bin/xray` and `config/xray/geoip.dat` / `geosite.dat` in place.
-2. Edit the Xray config at `/data/adb/modules/netproxy/config/xray/config.json` (also editable on the WebUI "配置" page):
+2. Edit the Xray config at `/data/adb/modules/netproxy_xray/config/xray/config.json` (also editable on the WebUI "配置" page):
    - Replace the default `proxy` outbound (a placeholder `freedom`) with your server, e.g. VLESS, Trojan, VMess or Shadowsocks, **keeping the tag `proxy`**.
    - Outbounds do **not** need `sockopt.mark`; the module lets Xray's own traffic through automatically.
    - The port of the `tproxy-in` inbound must match `TPROXY_PORT` in `module.conf` (default `12345`).
@@ -46,7 +46,7 @@ The service starts on boot by default. For day-to-day toggling, use the module m
 **CLI**
 
 ```sh
-CLI=/data/adb/modules/netproxy/scripts/cli
+CLI=/data/adb/modules/netproxy_xray/scripts/cli
 su -c "$CLI service status"          # show status
 su -c "$CLI service restart"         # restart the service
 su -c "$CLI service logs error 100"  # read logs: service / error / access
@@ -57,7 +57,7 @@ su -c "$CLI help"                    # all commands
 
 ## Configuration
 
-Module settings live in `/data/adb/modules/netproxy/config/module.conf`; restart the service after changing them:
+Module settings live in `/data/adb/modules/netproxy_xray/config/module.conf`; restart the service after changing them:
 
 | Key | Default | Description |
 |---|---|---|
@@ -71,12 +71,12 @@ Module settings live in `/data/adb/modules/netproxy/config/module.conf`; restart
 | `LOG_LEVEL` | `info` | `debug` also logs the full transparent proxy rules |
 | `GEO_UPDATE_*` | Loyalsoldier | Download URLs and timeout for geo data |
 
-**Logs** are in `/data/adb/modules/netproxy/logs/`, at most three files: `service.log` (module log) plus the files set by `log.error` and `log.access` in your Xray config. They are trimmed automatically when they grow too large.
+**Logs** are in `/data/adb/modules/netproxy_xray/logs/`, at most three files: `service.log` (module log) plus the files set by `log.error` and `log.access` in your Xray config. They are trimmed automatically when they grow too large.
 
 ## FAQ
 
 **No network after enabling — how do I recover?**
-Tap the "Action" button in the module manager to stop the service, or run `su -c /data/adb/modules/netproxy/scripts/cli service stop`; the transparent proxy rules are removed. Then check `service.log` and the Xray error log.
+Tap the "Action" button in the module manager to stop the service, or run `su -c /data/adb/modules/netproxy_xray/scripts/cli service stop`; the transparent proxy rules are removed. Then check `service.log` and the Xray error log.
 
 **Traffic doesn't seem to go through the proxy?**
 - Enable the Xray access log (set `log.access` to a file path) and check whether connections are routed to `proxy` or `direct`. Mainland China sites going direct is expected with the default rules.
@@ -89,7 +89,7 @@ Put the Google domain and IP rules before the `geosite:cn` / `geoip:cn` direct r
 
 - **Module**: the module manager shows new versions; you can also download from Releases and install over the existing one.
 - **Geo data**: tap "更新 geoip / geosite" on the WebUI status page or run `cli geo update`. Downloads are sha256-verified before replacing, failures leave the existing files untouched, and changes apply after a service restart.
-- **Xray binary**: download `Xray-android-arm64-v8a.zip` from [Xray-core Releases](https://github.com/XTLS/Xray-core/releases), replace `/data/adb/modules/netproxy/bin/xray` with the `xray` inside, and restart the service. Module upgrades keep your replacement; to go back to the bundled version, delete the file and reinstall the module.
+- **Xray binary**: download `Xray-android-arm64-v8a.zip` from [Xray-core Releases](https://github.com/XTLS/Xray-core/releases), replace `/data/adb/modules/netproxy_xray/bin/xray` with the `xray` inside, and restart the service. Module upgrades keep your replacement; to go back to the bundled version, delete the file and reinstall the module.
 
 ## Development & Release
 

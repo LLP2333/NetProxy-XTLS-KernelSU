@@ -3,7 +3,7 @@
 透明代理由 `scripts/network/tproxy.sh` 实现，配置项位于 [module.conf](./module.md)：
 
 ```text
-/data/adb/modules/netproxy/config/module.conf
+/data/adb/modules/netproxy_xray/config/module.conf
 ```
 
 服务启动时加载规则，停止时清理。修改下列任何一项后都需要重启服务。

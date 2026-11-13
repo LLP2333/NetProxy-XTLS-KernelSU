@@ -5,7 +5,7 @@
 配置文件路径：
 
 ```text
-/data/adb/modules/netproxy/config/xray/config.json
+/data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 默认配置中有一个 tag 为 `proxy` 的 `freedom` 出站，它只是占位。把它替换成你的真实代理出站，保留 tag：
@@ -46,7 +46,7 @@ DNS_PORT="1536"
 ## 3. 校验配置
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
 ```
 
 看到 `Configuration OK.` 后再启动。
@@ -60,14 +60,14 @@ su -c '/data/adb/modules/netproxy/scripts/cli xray test'
 查看状态：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service status'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service status'
 ```
 
 ## 5. 查看日志
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service logs service 80'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service logs service 80'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service logs xray 80'
 ```
 
 ## 6. 常用调整
@@ -75,12 +75,12 @@ su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
 开启分应用白名单模式：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli app mode whitelist'
-su -c '/data/adb/modules/netproxy/scripts/cli app add com.example.app'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli app mode whitelist'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli app add com.example.app'
 ```
 
 使分应用修改立即生效（只重载规则，不重启 Xray）：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli app reload'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli app reload'
 ```

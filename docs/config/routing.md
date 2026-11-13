@@ -10,7 +10,7 @@ NetProxy 的路由分两层：
 配置文件：
 
 ```text
-/data/adb/modules/netproxy/config/tproxy/tproxy.conf
+/data/adb/modules/netproxy_xray/config/tproxy/tproxy.conf
 ```
 
 这一层处理：
@@ -25,7 +25,7 @@ NetProxy 的路由分两层：
 配置文件：
 
 ```text
-/data/adb/modules/netproxy/config/xray/config.json
+/data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 默认 routing：
@@ -55,7 +55,7 @@ NetProxy 的路由分两层：
 Xray 会从这里读取 `geoip.dat` 和 `geosite.dat`：
 
 ```text
-/data/adb/modules/netproxy/config/xray/
+/data/adb/modules/netproxy_xray/config/xray/
 ```
 
 服务脚本通过 `XRAY_LOCATION_ASSET` 指定该目录。

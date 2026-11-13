@@ -64,7 +64,7 @@ APP_PROXY_LIST="com.tencent.mm"
 然后重启服务：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service restart'
 ```
 
 更多说明见 [透明代理配置](../config/tproxy.md)。更细的域名或协议分流应写在 `config/xray/config.json` 的 routing 中。

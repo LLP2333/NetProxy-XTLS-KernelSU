@@ -3,20 +3,20 @@
 Xray 主配置路径：
 
 ```text
-/data/adb/modules/netproxy/config/xray/config.json
+/data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 模块启动时执行：
 
 ```sh
-bin/xray run -config /data/adb/modules/netproxy/config/xray/config.json
+bin/xray run -config /data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 并设置：
 
 ```text
-XRAY_LOCATION_ASSET=/data/adb/modules/netproxy/config/xray
-XRAY_LOCATION_CONFIG=/data/adb/modules/netproxy/config/xray
+XRAY_LOCATION_ASSET=/data/adb/modules/netproxy_xray/config/xray
+XRAY_LOCATION_CONFIG=/data/adb/modules/netproxy_xray/config/xray
 ```
 
 因此 `geoip.dat` 和 `geosite.dat` 放在 `config/xray/` 下即可被 Xray 读取。

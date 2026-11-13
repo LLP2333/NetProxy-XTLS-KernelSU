@@ -22,7 +22,7 @@ SKIPUNZIP=1
 # 常量定义
 ################################################################################
 
-readonly MODULE_ID="netproxy"
+readonly MODULE_ID="netproxy_xray"
 readonly LIVE_DIR="/data/adb/modules/$MODULE_ID"
 readonly BACKUP_DIR="$TMPDIR/netproxy_backup"
 readonly MANIFEST="$TMPDIR/netproxy_manifest.txt"

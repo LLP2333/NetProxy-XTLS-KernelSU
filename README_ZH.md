@@ -25,7 +25,7 @@
 
 1. 从 [Releases](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases/latest) 下载 `NetProxy_<版本>_<编号>.zip`，在模块管理器中安装后重启手机。
    - `_mini.zip` 不含 Xray 程序与 geo 数据，需要自行放入 `bin/xray` 与 `config/xray/geoip.dat`、`geosite.dat`。
-2. 编辑 Xray 配置 `/data/adb/modules/netproxy/config/xray/config.json`，可在 WebUI 的「配置」页直接编辑：
+2. 编辑 Xray 配置 `/data/adb/modules/netproxy_xray/config/xray/config.json`，可在 WebUI 的「配置」页直接编辑：
    - 把默认的 `proxy` 出站（占位用的 `freedom`）替换成你的节点，例如 VLESS、Trojan、VMess、Shadowsocks，**保留 tag `proxy`**。
    - 出站**不需要**设置 `sockopt.mark`，模块会自动放行 Xray 自身的流量。
    - 透明代理入站 `tproxy-in` 的端口需与 `module.conf` 中的 `TPROXY_PORT`（默认 `12345`）一致。
@@ -46,7 +46,7 @@
 **CLI**
 
 ```sh
-CLI=/data/adb/modules/netproxy/scripts/cli
+CLI=/data/adb/modules/netproxy_xray/scripts/cli
 su -c "$CLI service status"          # 查看状态
 su -c "$CLI service restart"         # 重启服务
 su -c "$CLI service logs error 100"  # 查看日志：service / error / access
@@ -57,7 +57,7 @@ su -c "$CLI help"                    # 全部命令
 
 ## 配置
 
-模块设置位于 `/data/adb/modules/netproxy/config/module.conf`，修改后重启服务生效：
+模块设置位于 `/data/adb/modules/netproxy_xray/config/module.conf`，修改后重启服务生效：
 
 | 键 | 默认值 | 说明 |
 |---|---|---|
@@ -71,12 +71,12 @@ su -c "$CLI help"                    # 全部命令
 | `LOG_LEVEL` | `info` | 设为 `debug` 时记录完整的透明代理规则 |
 | `GEO_UPDATE_*` | Loyalsoldier | geo 数据的下载地址与超时 |
 
-**日志**位于 `/data/adb/modules/netproxy/logs/`，最多 3 个：`service.log`（模块日志），以及 Xray 配置中 `log.error`、`log.access` 指定的文件。超过大小上限时自动截断。
+**日志**位于 `/data/adb/modules/netproxy_xray/logs/`，最多 3 个：`service.log`（模块日志），以及 Xray 配置中 `log.error`、`log.access` 指定的文件。超过大小上限时自动截断。
 
 ## 常见问题
 
 **开启后无法上网怎么恢复？**
-点击模块管理器中的「操作」按钮停止服务，或执行 `su -c /data/adb/modules/netproxy/scripts/cli service stop`，透明代理规则会被清除。然后查看 `service.log` 与 Xray 错误日志排查原因。
+点击模块管理器中的「操作」按钮停止服务，或执行 `su -c /data/adb/modules/netproxy_xray/scripts/cli service stop`，透明代理规则会被清除。然后查看 `service.log` 与 Xray 错误日志排查原因。
 
 **感觉流量没有走代理？**
 - 查看 Xray 访问日志（在配置中设置 `log.access` 为文件路径），确认连接被路由到了 `proxy` 还是 `direct`。国内网站按默认规则直连属于正常现象。
@@ -89,7 +89,7 @@ su -c "$CLI help"                    # 全部命令
 
 - **模块**：模块管理器会提示新版本，也可以从 Releases 下载后覆盖安装。
 - **geo 数据**：WebUI 状态页点击「更新 geoip / geosite」，或执行 `cli geo update`；下载后校验 sha256 再替换，失败不影响现有文件，重启服务后生效。
-- **Xray 程序**：从 [Xray-core Releases](https://github.com/XTLS/Xray-core/releases) 下载 `Xray-android-arm64-v8a.zip`，将其中的 `xray` 替换 `/data/adb/modules/netproxy/bin/xray` 后重启服务。升级模块时会保留你替换的版本；想恢复模块自带版本，删除该文件后重新安装模块。
+- **Xray 程序**：从 [Xray-core Releases](https://github.com/XTLS/Xray-core/releases) 下载 `Xray-android-arm64-v8a.zip`，将其中的 `xray` 替换 `/data/adb/modules/netproxy_xray/bin/xray` 后重启服务。升级模块时会保留你替换的版本；想恢复模块自带版本，删除该文件后重新安装模块。
 
 ## 开发与发布
 

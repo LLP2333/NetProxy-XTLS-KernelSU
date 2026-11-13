@@ -3,7 +3,7 @@
 主目录：
 
 ```text
-/data/adb/modules/netproxy/config/xray/
+/data/adb/modules/netproxy_xray/config/xray/
 ```
 
 文件：
@@ -19,14 +19,14 @@ geosite.dat
 服务脚本会设置：
 
 ```text
-XRAY_LOCATION_ASSET=/data/adb/modules/netproxy/config/xray
-XRAY_LOCATION_CONFIG=/data/adb/modules/netproxy/config/xray
+XRAY_LOCATION_ASSET=/data/adb/modules/netproxy_xray/config/xray
+XRAY_LOCATION_CONFIG=/data/adb/modules/netproxy_xray/config/xray
 ```
 
 然后启动：
 
 ```sh
-/data/adb/modules/netproxy/bin/xray run -config /data/adb/modules/netproxy/config/xray/config.json
+/data/adb/modules/netproxy_xray/bin/xray run -config /data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 ## 默认入站
@@ -76,11 +76,11 @@ XRAY_LOCATION_CONFIG=/data/adb/modules/netproxy/config/xray
 ## 校验配置
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
 ```
 
 配置通过后再重启：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service restart'
 ```

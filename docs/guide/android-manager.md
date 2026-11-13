@@ -10,7 +10,7 @@ NetProxy 的 Android 管理器可用于日常查看状态、日志和常用配�
 Xray 主配置仍以文件为准：
 
 ```text
-/data/adb/modules/netproxy/config/xray/config.json
+/data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 如果管理器里的功能与当前 Xray 版本不一致，以模块内的 CLI 和配置文件为准。
@@ -23,5 +23,5 @@ Xray 主配置仍以文件为准：
 - 用 CLI 执行 Xray 配置校验。
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
 ```

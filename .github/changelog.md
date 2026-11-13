@@ -1,3 +1,16 @@
+## 版本 7.7.0
+
+### 变更
+
+* 模块 id 由 `netproxy` 改为 `netproxy_xray`，模块名改为「NetProxy Xray」。原 id 与 KernelSU 模块仓库中原作者的 sing-box 版 NetProxy 相同，管理器会把它误判为本模块的更新，点击后会被覆盖成另一个模块。
+* 模块目录随之变为 `/data/adb/modules/netproxy_xray`，CLI、配置文件和日志路径相应变化，文档已同步更新。
+
+### 升级说明
+
+* **不能直接覆盖升级**：新 id 会被当作另一个模块安装，旧模块不会被替换，两者同时运行会冲突。
+* 请先备份 `/data/adb/modules/netproxy/config/` 下的配置（`module.conf`、`xray/config.json` 等），在模块管理器中卸载旧的 NetProxy 并重启，再安装本版本，然后把配置复制到 `/data/adb/modules/netproxy_xray/config/`。
+* 如果自定义过 `module.conf` 中的 `XRAY_CONFIG` 或 Xray 配置里的日志路径，需把其中的 `/data/adb/modules/netproxy/` 改为 `/data/adb/modules/netproxy_xray/`。
+
 ## 版本 7.6.0
 
 ### 新增

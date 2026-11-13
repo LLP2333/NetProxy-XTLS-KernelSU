@@ -12,7 +12,7 @@ NetProxy 是一个面向 Android Root 环境的系统级透明代理模块，当
 当前版本只支持手写 Xray 配置文件：
 
 ```text
-/data/adb/modules/netproxy/config/xray/config.json
+/data/adb/modules/netproxy_xray/config/xray/config.json
 ```
 
 不再提供以下运行能力：
@@ -36,15 +36,15 @@ NetProxy 是一个面向 Android Root 环境的系统级透明代理模块，当
 ## 关键目录
 
 ```text
-/data/adb/modules/netproxy/bin/xray
-/data/adb/modules/netproxy/config/module.conf
-/data/adb/modules/netproxy/config/xray/config.json
-/data/adb/modules/netproxy/config/xray/geoip.dat
-/data/adb/modules/netproxy/config/xray/geosite.dat
-/data/adb/modules/netproxy/config/tproxy/tproxy.conf
-/data/adb/modules/netproxy/scripts/cli
-/data/adb/modules/netproxy/logs/service.log
-/data/adb/modules/netproxy/logs/xray.log
+/data/adb/modules/netproxy_xray/bin/xray
+/data/adb/modules/netproxy_xray/config/module.conf
+/data/adb/modules/netproxy_xray/config/xray/config.json
+/data/adb/modules/netproxy_xray/config/xray/geoip.dat
+/data/adb/modules/netproxy_xray/config/xray/geosite.dat
+/data/adb/modules/netproxy_xray/config/tproxy/tproxy.conf
+/data/adb/modules/netproxy_xray/scripts/cli
+/data/adb/modules/netproxy_xray/logs/service.log
+/data/adb/modules/netproxy_xray/logs/xray.log
 ```
 
 ## 默认流量路径

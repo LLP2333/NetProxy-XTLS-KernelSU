@@ -5,14 +5,14 @@
 先看日志：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service logs service 120'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 120'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service logs service 120'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service logs xray 120'
 ```
 
 再校验 Xray 配置：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
 ```
 
 常见原因：
@@ -72,7 +72,7 @@ config/xray/geosite.dat
 替换后执行：
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray version'
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
-su -c '/data/adb/modules/netproxy/scripts/cli service restart'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray version'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service restart'
 ```

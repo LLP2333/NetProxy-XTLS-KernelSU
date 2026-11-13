@@ -13,11 +13,11 @@
 1. 从 [NetProxy Releases](https://github.com/LLP2333/NetProxy-XTLS-KernelSU/releases) 下载模块 ZIP。
 2. 在 Magisk、KernelSU 或 APatch 中刷入模块。
 3. 重启设备。
-4. 编辑 `/data/adb/modules/netproxy/config/xray/config.json`。
+4. 编辑 `/data/adb/modules/netproxy_xray/config/xray/config.json`。
 5. 执行配置校验。
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli xray test'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
 ```
 
 配置通过后可以重启手机让模块自动启动，也可以在模块管理器中点击 NetProxy 的“操作”按钮手动启动。
@@ -25,9 +25,9 @@ su -c '/data/adb/modules/netproxy/scripts/cli xray test'
 ## 安装后检查
 
 ```sh
-su -c '/data/adb/modules/netproxy/scripts/cli service status'
-su -c '/data/adb/modules/netproxy/scripts/cli tproxy status'
-su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service status'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli tproxy status'
+su -c '/data/adb/modules/netproxy_xray/scripts/cli service logs xray 80'
 ```
 
 如果 `xray test` 失败，先修正 `config.json`，再启动服务。
@@ -45,7 +45,7 @@ su -c '/data/adb/modules/netproxy/scripts/cli service logs xray 80'
 
 升级到 Xray 版本后，旧的节点目录、订阅目录、控制接口和面板不再使用。请重点检查：
 
-- `/data/adb/modules/netproxy/config/xray/config.json` 是否存在。
+- `/data/adb/modules/netproxy_xray/config/xray/config.json` 是否存在。
 - `config.json` 内是否有 tag 为 `proxy` 的可用出站。
 - 所有需要发起外连的出站是否设置 `streamSettings.sockopt.mark=2`。
 - `config/tproxy/tproxy.conf` 是否保留 `ROUTING_MARK="2"`。

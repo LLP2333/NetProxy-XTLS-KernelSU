@@ -3,7 +3,7 @@
 模块级配置位于：
 
 ```text
-/data/adb/modules/netproxy/config/module.conf
+/data/adb/modules/netproxy_xray/config/module.conf
 ```
 
 升级模块时会保留该文件。旧版本升级后文件里可能没有新增的键，缺失的键会使用下方默认值。
@@ -22,7 +22,7 @@ HOTSPOT_INTERFACES="wlan2 ap+ swlan0 rndis+ ncm+"
 APP_PROXY_MODE=off
 APP_PROXY_LIST=""
 
-XRAY_CONFIG="/data/adb/modules/netproxy/config/xray/config.json"
+XRAY_CONFIG="/data/adb/modules/netproxy_xray/config/xray/config.json"
 
 GEO_UPDATE_GEOIP_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"
 GEO_UPDATE_GEOSITE_URL="https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
@@ -62,8 +62,8 @@ GEO_UPDATE_TIMEOUT=60
 
 ```json
 "log": {
-  "access": "/data/adb/modules/netproxy/logs/access.log",
-  "error": "/data/adb/modules/netproxy/logs/xray.log",
+  "access": "/data/adb/modules/netproxy_xray/logs/access.log",
+  "error": "/data/adb/modules/netproxy_xray/logs/xray.log",
   "loglevel": "warning"
 }
 ```

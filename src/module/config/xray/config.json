@@ -1,7 +1,7 @@
 {
   "log": {
     "access": "none",
-    "error": "/data/adb/modules/netproxy/logs/xray.log",
+    "error": "/data/adb/modules/netproxy_xray/logs/xray.log",
     "loglevel": "warning"
   },
   "dns": {
