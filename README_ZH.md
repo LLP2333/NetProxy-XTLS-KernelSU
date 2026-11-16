@@ -19,7 +19,7 @@
 - **原生 Xray 配置**：直接使用 Xray 的 `config.json`，节点、路由、DNS 全部按 Xray 原生写法配置。
 - **WebUI**：在 KernelSU 管理器中查看状态、启停服务、编辑并校验配置、查看日志、更新 geo 数据。
 - **稳定性**：看门狗在 Xray 意外退出时立即清理规则避免断网，并可自动重启；服务脱离管理器应用运行，不会随应用被冻结或关闭。
-- **升级无忧**：覆盖安装会保留配置、自定义规则文件、日志以及自行替换的 Xray 与 geo 数据；模块管理器中可直接收到新版本提示。
+- **升级无忧**：覆盖安装会保留配置、自定义规则文件和日志，Xray 内核与 geo 数据随新包一起更新；模块管理器中可直接收到新版本提示。
 
 ## 安装与快速开始
 
@@ -89,7 +89,7 @@ su -c "$CLI help"                    # 全部命令
 
 - **模块**：模块管理器会提示新版本，也可以从 Releases 下载后覆盖安装。
 - **geo 数据**：WebUI 状态页点击「更新 geoip / geosite」，或执行 `cli geo update`；下载后校验 sha256 再替换，失败不影响现有文件，重启服务后生效。
-- **Xray 程序**：从 [Xray-core Releases](https://github.com/XTLS/Xray-core/releases) 下载 `Xray-android-arm64-v8a.zip`，将其中的 `xray` 替换 `/data/adb/modules/netproxy_xray/bin/xray` 后重启服务。升级模块时会保留你替换的版本；想恢复模块自带版本，删除该文件后重新安装模块。
+- **Xray 程序**：从 [Xray-core Releases](https://github.com/XTLS/Xray-core/releases) 下载 `Xray-android-arm64-v8a.zip`，将其中的 `xray` 替换 `/data/adb/modules/netproxy_xray/bin/xray` 后重启服务。注意：升级模块（完整包）时会被新包自带的版本覆盖，`_mini.zip` 则沿用现有文件。
 
 ## 开发与发布
 

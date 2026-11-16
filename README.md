@@ -19,7 +19,7 @@ An Android system-level transparent proxy module based on **Xray-core**, for Ker
 - **Native Xray config**: uses Xray's own `config.json` — outbounds, routing and DNS are written exactly as in Xray.
 - **WebUI**: check status, start/stop the service, edit and validate the config, read logs and update geo data from the KernelSU manager.
 - **Reliability**: a watchdog clears the rules immediately if Xray exits unexpectedly so the network keeps working, and can restart it; the service runs detached from the manager app, so it is not frozen or killed with the app.
-- **Painless upgrades**: reinstalling keeps your config, custom rule files, logs, and any Xray or geo data you replaced; new versions show up as updates in the module manager.
+- **Painless upgrades**: reinstalling keeps your config, custom rule files and logs, while the Xray binary and geo data are updated from the new package; new versions show up as updates in the module manager.
 
 ## Installation & Quick Start
 
@@ -89,7 +89,7 @@ Put the Google domain and IP rules before the `geosite:cn` / `geoip:cn` direct r
 
 - **Module**: the module manager shows new versions; you can also download from Releases and install over the existing one.
 - **Geo data**: tap "更新 geoip / geosite" on the WebUI status page or run `cli geo update`. Downloads are sha256-verified before replacing, failures leave the existing files untouched, and changes apply after a service restart.
-- **Xray binary**: download `Xray-android-arm64-v8a.zip` from [Xray-core Releases](https://github.com/XTLS/Xray-core/releases), replace `/data/adb/modules/netproxy_xray/bin/xray` with the `xray` inside, and restart the service. Module upgrades keep your replacement; to go back to the bundled version, delete the file and reinstall the module.
+- **Xray binary**: download `Xray-android-arm64-v8a.zip` from [Xray-core Releases](https://github.com/XTLS/Xray-core/releases), replace `/data/adb/modules/netproxy_xray/bin/xray` with the `xray` inside, and restart the service. Note: upgrading with the full package overwrites it with the bundled version; `_mini.zip` keeps the existing files.
 
 ## Development & Release
 

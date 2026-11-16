@@ -1,3 +1,16 @@
+## 版本 7.7.1
+
+### 变更
+
+* Xray 内核更新至 [v26.11.9](https://github.com/XTLS/Xray-core/releases/tag/v26.11.9)。
+* 升级模块时，`bin/xray` 与 `config/xray/geoip.dat`、`geosite.dat` 改为使用新包自带的版本覆盖，不再保留旧文件。之前覆盖安装后内核和 geo 数据一直停留在旧版本。
+* 使用 `_mini.zip`（不含内核与 geo 数据）升级时，继续沿用现有文件。
+
+### 升级说明
+
+* 可直接覆盖安装，`module.conf`、`xray/config.json` 和自定义规则文件仍会保留。
+* 自行替换过更新版 Xray，或在 WebUI 中更新过 geo 数据的，升级后会回到包内版本，需要重新替换或更新；也可以改用 `_mini.zip` 升级。
+
 ## 版本 7.7.0
 
 ### 变更

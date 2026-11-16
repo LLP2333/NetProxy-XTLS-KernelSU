@@ -76,3 +76,5 @@ su -c '/data/adb/modules/netproxy_xray/scripts/cli xray version'
 su -c '/data/adb/modules/netproxy_xray/scripts/cli xray test'
 su -c '/data/adb/modules/netproxy_xray/scripts/cli service restart'
 ```
+
+升级模块时，完整包会用自带的 Xray 与 geo 数据覆盖上述文件；使用 `_mini.zip` 升级则沿用现有文件。手动替换过更新版本的，升级后需要重新替换，或改用 `_mini.zip` 升级。

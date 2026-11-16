@@ -29,14 +29,16 @@ readonly MANIFEST="$TMPDIR/netproxy_manifest.txt"
 
 PROXY_WAS_RUNNING=false
 
-# 升级时保留的用户/资产文件（相对于模块根目录）
-# 这些文件在升级安装时：若 LIVE_DIR 已存在则不覆盖
-#   - 用户配置：避免被刷回模板
-#   - xray 二进制：用户自行替换的新版本不被回滚
-#   - geo 数据：服务运行时 geo_update.sh 拉到的新版本不被回滚
+# 升级时保留的用户配置（相对于模块根目录），若 LIVE_DIR 已存在则不覆盖，
+# 避免被刷回模板
 readonly PRESERVE_USER_FILES="
     config/module.conf
     config/xray/config.json
+"
+
+# 随包发布的 Xray 内核与 geo 数据（相对于模块根目录）
+# 升级时以新包中的版本覆盖；新包不含这些文件时（_mini.zip）沿用现有文件
+readonly BUNDLED_ASSET_FILES="
     bin/xray
     config/xray/geoip.dat
     config/xray/geosite.dat
@@ -135,7 +137,7 @@ backup_config() {
   mkdir -p "$BACKUP_DIR"
 
   local pf
-  for pf in $PRESERVE_USER_FILES; do
+  for pf in $PRESERVE_USER_FILES $BUNDLED_ASSET_FILES; do
     local src="$LIVE_DIR/$pf"
     if [ -f "$src" ]; then
       local dst="$BACKUP_DIR/$pf"
@@ -187,6 +189,22 @@ restore_config() {
       mkdir -p "$(dirname "$dst")"
       if cp -f "$src" "$dst" 2> /dev/null; then
         print_ok "已恢复: $pf"
+      else
+        print_warn "恢复失败: $pf"
+      fi
+    fi
+  done
+
+  # 内核与 geo 数据：新包自带则用新版本，新包不含时才沿用现有文件
+  for pf in $BUNDLED_ASSET_FILES; do
+    local src="$BACKUP_DIR/$pf"
+    local dst="$MODPATH/$pf"
+    if [ -f "$dst" ]; then
+      print_ok "已更新: $pf"
+    elif [ -f "$src" ]; then
+      mkdir -p "$(dirname "$dst")"
+      if cp -f "$src" "$dst" 2> /dev/null; then
+        print_ok "新包不含，沿用现有: $pf"
       else
         print_warn "恢复失败: $pf"
       fi
